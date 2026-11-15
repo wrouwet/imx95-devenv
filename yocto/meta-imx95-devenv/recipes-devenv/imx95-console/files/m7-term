@@ -8,6 +8,11 @@ banner() {
 	printf '\033[2J\033[H'
 	printf '\033[1;36m==== i.MX95 Cortex-M7 (Zephyr) ====\033[0m\n'
 	m7ctl status 2>&1 | sed 's/^/  /'
+	if [ ! -d /proc/device-tree/reserved-memory/m7-ddr@80000000 ]; then
+		printf '\033[1;31m  WARNING: not booted with an imx95-devenv dtb (%s).\n' "$(tr -d '\0' < /proc/device-tree/model 2>/dev/null)"
+		printf '  M7 DDR firmware will not load. Stale U-Boot env? At the U-Boot prompt:\n'
+		printf '    env default -a; saveenv; boot\033[0m\n'
+	fi
 	echo
 }
 

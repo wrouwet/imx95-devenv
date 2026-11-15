@@ -4,12 +4,28 @@ SRC_URI += " \
     file://devenv.cfg \
 "
 
-KERNEL_DEVICETREE:append:mx95-nxp-bsp = " freescale/imx95-19x19-evk-devenv.dtb"
+# Base devenv dtb plus one variant per MIPI-DSI->HDMI adapter (NXP overlays
+# applied on top). U-Boot picks one at boot by probing I2C (see u-boot bbappend).
+DEVENV_DTBS = " \
+    freescale/imx95-19x19-evk-devenv.dtb \
+    freescale/imx95-19x19-evk-devenv-adv7535.dtb \
+    freescale/imx95-19x19-evk-devenv-lt9611uxc.dtb \
+"
+KERNEL_DEVICETREE:append:mx95-nxp-bsp = " ${DEVENV_DTBS}"
 
-# Drop the dts into the tree and register it with Kbuild (idempotent).
+# Drop the dts into the tree and register the dtbs with Kbuild (idempotent).
 do_configure:prepend:mx95-nxp-bsp() {
     dtsdir=${S}/arch/arm64/boot/dts/freescale
     install -m 0644 ${UNPACKDIR}/imx95-19x19-evk-devenv.dts $dtsdir/
-    grep -q 'imx95-19x19-evk-devenv.dtb' $dtsdir/Makefile || \
-        echo 'dtb-$(CONFIG_ARCH_MXC) += imx95-19x19-evk-devenv.dtb' >> $dtsdir/Makefile
+    if ! grep -q 'imx95-19x19-evk-devenv' $dtsdir/Makefile; then
+        cat >> $dtsdir/Makefile <<'EOF'
+
+# imx95-devenv
+dtb-$(CONFIG_ARCH_MXC) += imx95-19x19-evk-devenv.dtb
+imx95-19x19-evk-devenv-adv7535-dtbs := imx95-19x19-evk-devenv.dtb imx95-19x19-evk-adv7535.dtbo
+dtb-$(CONFIG_ARCH_MXC) += imx95-19x19-evk-devenv-adv7535.dtb
+imx95-19x19-evk-devenv-lt9611uxc-dtbs := imx95-19x19-evk-devenv.dtb imx95-19x19-evk-lt9611uxc.dtbo
+dtb-$(CONFIG_ARCH_MXC) += imx95-19x19-evk-devenv-lt9611uxc.dtb
+EOF
+    fi
 }

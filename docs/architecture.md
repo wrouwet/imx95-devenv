@@ -29,7 +29,16 @@ NXP's `configs/other/mx95evkrpmsg.cfg` (imx-sm `lf-6.18.37-2.1.0`) plus a small 
 The same split was used and tested upstream by NXP on the NavQ95 board
 (Zephyr `boards/nxp/mr_navq95b`, robotics-sm `mr-navq95.cfg`).
 
-## Linux device tree (`imx95-19x19-evk-devenv.dtb`)
+## Linux device tree (`imx95-19x19-evk-devenv*.dtb`)
+
+Three dtbs are built: `imx95-19x19-evk-devenv.dtb` (no display) and `-adv7535` / `-lt9611uxc`,
+each of which is the devenv dtb plus NXP's adapter overlay (`imx95-19x19-evk-<bridge>.dtbo`), merged
+by Kbuild. U-Boot's `loadfdt` runs `devenv_pickfdt` first. That probes `i2c dev 1` (lpi2c2) for
+the LT9611UXC at 0x2b and otherwise uses ADV7535 (at 0x3d, NXP's EVK default). Override with the
+`devenv_display` env var. The patch is applied to `board/nxp/imx95_evk/imx95_evk.env` in the
+u-boot-imx bbappend.
+
+The devenv dtb itself is:
 
 `imx95-19x19-evk.dts` plus:
 - a `no-map` reserved region `m7-ddr@80000000`, 48 MiB, where the Zephyr `m7/ddr` image
@@ -104,9 +113,10 @@ time sync (the NETC timer is owned by Linux; `ptp4l` on `end0`), and TSN/Qbv on 
 ## Consoles (`imx95-console` package)
 
 - `imx95-console.service` (after `m7-autostart`) starts tmux session `imx95` on socket
-  `/run/imx95-console/tmux.sock` with config `/etc/imx95-console/tmux.conf`. Window `M7` runs `m7-term`,
-  a loop that waits for `/dev/ttyRPMSG0`, runs `picocom` on it, and reconnects after the M7 restarts.
-  Window `Linux` is a root shell. The status bar polls `m7ctl state`.
+  `/run/imx95-console/tmux.sock` with config `/etc/imx95-console/tmux.conf`. Window `main` is split:
+  the top pane `M7` runs `m7-term`, a loop that waits for `/dev/ttyRPMSG0`, runs `picocom` on it, and
+  reconnects after the M7 restarts; it warns in red if the booted dtb lacks the `m7-ddr` reservation.
+  The bottom pane `Linux` is a root shell. Window `shell` is a spare root shell. The status bar polls `m7ctl state`.
 - `serial-getty@ttyLP0` gets an `--autologin root` drop-in. `/etc/profile.d/zz-imx95-console.sh`
   attaches interactive serial and SSH logins with `imx95-console attach`, which creates a grouped
   session per client (independent current window, shared windows). It first queries the serial

@@ -61,6 +61,10 @@ work out from the files: current status, decisions and the reasons for them, got
   (prefix Ctrl-a to avoid clashing with the board's Ctrl-b).
 - **Rootfs tool set, by user request** ("enough Ethernet and development tools for basic local
   enablement"): see the image recipe. ripgrep was left out on purpose (pulls in the Rust toolchain).
+- **HDMI display for Linux, by user request**: the user has an HDMI monitor on an adapter in the
+  MIPI DSI/CSI connector (exact adapter unknown). U-Boot autodetects LT9611UXC (i2c1 @0x2b) and
+  otherwise uses ADV7535 (NXP EVK default). Console layout is one split window (M7 top, Linux bottom)
+  so the monitor shows both cores at once.
 - **NXP EULA**: the user explicitly accepted it in the setup session (`ACCEPT_FSL_EULA=1`).
   Don't put NXP binaries in the repo.
 
@@ -68,7 +72,12 @@ work out from the files: current status, decisions and the reasons for them, got
 
 - An i.MX95 silicon revision mismatch shows up as "no U-Boot output at all". Read
   `docs/silicon-revision.md` before debugging anything else on a dead board.
-- Saved U-Boot environment on the board overrides `CONFIG_DEFAULT_FDT_FILE`. Fix: `env default -a; saveenv`.
+- A saved U-Boot environment on the board (e.g. from the factory image) overrides ALL default-env
+  changes (`CONFIG_DEFAULT_FDT_FILE` and `devenv_pickfdt`). Symptom: the stock NXP dtb boots, and the M7
+  pane shows a red warning. Fix: `env default -a; saveenv`. uuu `emmc_all` probably doesn't
+  clear the env (unverified).
+- U-Boot `i2c dev 1` assumes U-Boot's DM numbering matches the Linux alias `i2c1 = &lpi2c2`. If
+  U-Boot numbers it differently, autodetection silently falls back to ADV7535.
 - In the bbappends, `${UNPACKDIR}` (not `${WORKDIR}`) is where `file://` sources land in Yocto 6.0.
 - Linux netdev naming: the PF is usually `end0` (systemd naming), but `m7-vf-handoff` finds it by
   PCI ID `1131:e101` at `*:00:00.0`, so renames don't break it.
@@ -96,7 +105,8 @@ work out from the files: current status, decisions and the reasons for them, got
    - verify: boot, `end0` DHCP, `m7ctl status` = running, `/dev/ttyRPMSG0` shell, M7 DHCP lease,
      `ping`/UDP echo to the M7 from the LAN and from Linux on the board
    - record the FT4232 `ttyUSBn` → UART mapping in `docs/flashing.md` and fix the defaults in `scripts/board.sh`
-   - check the console: serial autologin → tmux `imx95`, M7 window shows the banner, Weston autolaunch
+   - check the console: serial autologin → tmux `imx95`, M7 pane shows the banner, Weston autolaunch
+   - HDMI: which adapter is fitted (ADV7535/LT9611UXC)? Does U-Boot's autodetect print the right dtb?
 3. Things likely to need fixing on first boot (untested assumptions): `rootfs-grow` on eMMC,
    `CONFIG_DEFAULT_FDT_FILE` actually being used by the imx95 U-Boot env, the VSI driver
    working with this exact Linux PF driver version (NavQ95 tested on a different linux-imx rev).

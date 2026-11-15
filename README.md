@@ -72,10 +72,10 @@ the USB serial console, `uuu` to eMMC or an SD card, and the first SSH login.
 
 ## Consoles: M7 and Linux side by side
 
-At boot the board starts a tmux session, **`imx95`**, with two windows:
-**`M7`** (the Zephyr shell and log of the Cortex-M7 over RPMsg, reconnecting
-whenever the M7 restarts) and **`Linux`** (a root shell on the A55). The status
-bar shows the M7's remoteproc state. You end up in that session automatically,
+At boot the board starts a tmux session, **`imx95`**, showing both cores at once:
+the top pane **`M7`** has the Zephyr shell and log of the Cortex-M7 over RPMsg,
+reconnecting whenever the M7 restarts, and the bottom pane **`Linux`** is a root
+shell on the A55. The status bar shows the M7's remoteproc state. You end up in that session automatically,
 with no password, from:
 
 | From | How |
@@ -83,10 +83,10 @@ with no password, from:
 | This machine, debug USB | `scripts/board.sh serial`: serial console, automatic root login, then the tmux session |
 | This machine, Ethernet | `scripts/board.sh ssh <ip>`: SSH with the key from `~/imx95-work/ssh/` |
 | This machine, everything | `scripts/board.sh tmux`: host dashboard with windows A55 / M7-UART / SM-UART (/ SSH). Host prefix is `Ctrl-a`; `Ctrl-b` goes to the board |
-| Monitor on the board | Weston opens a full-screen terminal on the session at startup |
+| HDMI monitor on the board | Weston desktop with a full-screen terminal on the session. Works with the ADV7535 (NXP IMX-MIPI-HDMI) or LT9611UXC adapter on the MIPI DSI/CSI connector, detected automatically at boot |
 | On the board | `imx95-console attach` or `m7ctl console` |
 
-On the board, `Ctrl-b m` switches to the M7 window, `Ctrl-b l` to Linux, and `Ctrl-b d` detaches
+On the board, `Ctrl-b m` jumps to the M7 pane, `Ctrl-b l` to Linux, `Ctrl-b z` zooms a pane, and `Ctrl-b d` detaches
 to a plain shell. Run `touch ~/.no-imx95-console` to stop logins from auto-attaching.
 
 ## On the board

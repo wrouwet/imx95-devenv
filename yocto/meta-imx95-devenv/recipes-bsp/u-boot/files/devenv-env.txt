@@ -1,0 +1,12 @@
+devenv_display=auto
+devenv_pickfdt=if test "${devenv_display}" = "auto"; then
+		setenv fdtfile imx95-19x19-evk-devenv-adv7535.dtb;
+		if i2c dev 1 && i2c probe 0x2b; then
+			setenv fdtfile imx95-19x19-evk-devenv-lt9611uxc.dtb;
+		fi;
+	elif test "${devenv_display}" = "none"; then
+		setenv fdtfile imx95-19x19-evk-devenv.dtb;
+	else
+		setenv fdtfile imx95-19x19-evk-devenv-${devenv_display}.dtb;
+	fi;
+	echo "imx95-devenv: display=${devenv_display} fdtfile=${fdtfile}"

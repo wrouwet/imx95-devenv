@@ -11,6 +11,7 @@ the image runs Weston.
 | **Debug USB-C** (FT4232H) | 4 serial ports appear on the host (`/dev/ttyUSB0..3`, 115200 8N1). They carry the A55 Linux console (LPUART1), the System Manager log on the M33 (LPUART2) and the **M7 Zephyr console** (LPUART3). Which `ttyUSBn` is which depends on enumeration, so open them all once and note the mapping. |
 | **USB-C download port** | `uuu` flashing in Serial Download mode |
 | **RJ45 ENET1** (next to the 10G port, RTL8211 PHY) | ENETC0: Linux `end0` **and** the M7's VF. Plug it into a LAN with DHCP. |
+| **MIPI DSI/CSI connector** + HDMI adapter | Display for Linux (Weston). ADV7535 (NXP IMX-MIPI-HDMI, the EVK default) or LT9611UXC adapter, detected by U-Boot (see below) |
 | Power | 12 V barrel jack + power switch |
 
 On the host: `scripts/board.sh ports` lists the four ports, `scripts/board.sh serial [a55|m7|sm]`
@@ -59,5 +60,15 @@ ping <m7-ip>
 echo hello | nc -u -w1 <m7-ip> 7     # UDP echo from the M7
 ```
 
-If U-Boot doesn't boot `imx95-19x19-evk-devenv.dtb` (check with `cat /proc/device-tree/model`
-and `ls /sys/class/remoteproc`), interrupt U-Boot and run `env default -a; saveenv; boot`.
+## HDMI display
+
+U-Boot probes I2C bus 1 just before loading the device tree. If an LT9611UXC answers at
+0x2b, it boots `imx95-19x19-evk-devenv-lt9611uxc.dtb`. Otherwise it boots
+`imx95-19x19-evk-devenv-adv7535.dtb`, the ADV7535 adapter NXP ships with the EVK, which is harmless
+without an adapter. The U-Boot console prints `imx95-devenv: display=... fdtfile=...`.
+To force a choice, at the U-Boot prompt: `setenv devenv_display adv7535` (or `lt9611uxc`, `none`,
+`auto`), then `saveenv`. Weston starts on the HDMI output with a full-screen terminal showing the
+M7 and Linux panes.
+
+If U-Boot doesn't boot an `imx95-19x19-evk-devenv*.dtb` (check with `cat /proc/device-tree/model`
+and the red warning in the M7 pane), interrupt U-Boot and run `env default -a; saveenv; boot`.
