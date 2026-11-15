@@ -4,9 +4,12 @@ A development environment for the **NXP i.MX95 19x19 LPDDR5 EVK** (board code
 `IMX95LPD5BB-19`). It covers:
 
 - **Linux on the 6× Cortex-A55**: NXP Yocto BSP `imx-6.18.37-2.1.0` (Yocto 6.0
-  "wrynose", kernel 6.18), with a custom developer image (`imx95-devenv-image`)
-  that has SSH, Weston, a native toolchain and everything needed to build
-  Zephyr *on the board*.
+  "wrynose", kernel 6.18), with a custom developer image (`imx95-devenv-image`).
+  It has key-only SSH, Weston, native gcc/g++/make/cmake/meson/ninja, kernel
+  headers/sources for out-of-tree modules, gdb/strace/ltrace/valgrind/perf,
+  vim/nano/tmux, and networking tools (ethtool, iproute2+tc, tcpdump, nmap, iperf2/3,
+  linuxptp, lldpd, phytool, mdio-tools, socat/netcat). It also has everything needed
+  to build Zephyr *on the board*.
 - **Zephyr on the Cortex-M7**: Zephyr v4.5.0, board `imx95_evk/mimx9596/m7/ddr`,
   with a reference app (`m7-netipc`). You can build it on the host or on the board.
 - **Loading the M7 from Linux**: remoteproc. `m7ctl run app.elf` loads, starts and stops it.
@@ -37,7 +40,7 @@ See [docs/architecture.md](docs/architecture.md) for how this works and why.
 | Path | What |
 |---|---|
 | `container/` | Ubuntu 24.04 build container (Yocto 6.0 doesn't support the Ubuntu 26.04 host) |
-| `scripts/` | `container.sh`, `yocto-setup.sh`, `yocto-build.sh`, `zephyr-setup.sh`, `zephyr-build.sh`, `flash.sh` |
+| `scripts/` | `container.sh`, `yocto-setup.sh`, `yocto-build.sh`, `zephyr-setup.sh`, `zephyr-build.sh`, `flash.sh`, `board.sh` (serial/SSH/tmux access from the host) |
 | `yocto/meta-imx95-devenv/` | Yocto layer: image, System Manager config, kernel DTS/config, U-Boot default DTB, M7 tools |
 | `yocto/local.conf.append` | Build settings appended to `build/conf/local.conf` |
 | `zephyr/west.yml` | West manifest (Zephyr v4.5.0 + only the modules the M7 needs) |
@@ -67,6 +70,25 @@ Outputs are in `~/imx95-work/yocto/build/tmp/deploy/images/imx95-19x19-lpddr5-ev
 To flash and boot the board, see [docs/flashing.md](docs/flashing.md). It covers
 the USB serial console, `uuu` to eMMC or an SD card, and the first SSH login.
 
+## Consoles: M7 and Linux side by side
+
+At boot the board starts a tmux session, **`imx95`**, with two windows:
+**`M7`** (the Zephyr shell and log of the Cortex-M7 over RPMsg, reconnecting
+whenever the M7 restarts) and **`Linux`** (a root shell on the A55). The status
+bar shows the M7's remoteproc state. You end up in that session automatically,
+with no password, from:
+
+| From | How |
+|---|---|
+| This machine, debug USB | `scripts/board.sh serial`: serial console, automatic root login, then the tmux session |
+| This machine, Ethernet | `scripts/board.sh ssh <ip>`: SSH with the key from `~/imx95-work/ssh/` |
+| This machine, everything | `scripts/board.sh tmux`: host dashboard with windows A55 / M7-UART / SM-UART (/ SSH). Host prefix is `Ctrl-a`; `Ctrl-b` goes to the board |
+| Monitor on the board | Weston opens a full-screen terminal on the session at startup |
+| On the board | `imx95-console attach` or `m7ctl console` |
+
+On the board, `Ctrl-b m` switches to the M7 window, `Ctrl-b l` to Linux, and `Ctrl-b d` detaches
+to a plain shell. Run `touch ~/.no-imx95-console` to stop logins from auto-attaching.
+
 ## On the board
 
 ```sh
@@ -81,11 +103,16 @@ imx95-zephyr-setup                # clones this repo, west workspace + SDK into 
 m7ctl run ~/zephyr-ws/build/m7-netipc/zephyr/zephyr.elf
 ```
 
-## Security
+## Access and security (no passwords)
 
-The image is set up for a desk: root has **no password**, and SSH root login
-is allowed. Set a password (`passwd`) or install an SSH key before connecting
-the board to a network you don't trust.
+- Root has **no password** in the image, and no password is ever asked for.
+- **Serial console** (physical USB access): automatic root login.
+- **SSH: public key only.** Password and empty-password logins are disabled in `sshd_config`.
+  `scripts/yocto-setup.sh` creates `~/imx95-work/ssh/id_ed25519` (no passphrase, never committed)
+  on the build host and bakes its public key into the image. To use another key, set
+  `DEVENV_SSH_PUBKEY` in `build/conf/local.conf`.
+- A monitor on the board gets a root terminal through Weston, which is equivalent to physical access.
+- For the M7, the UART and RPMsg shell have no authentication. Treat the board as a lab device.
 
 ## Licenses
 

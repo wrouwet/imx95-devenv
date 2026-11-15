@@ -17,6 +17,7 @@
 #include <zephyr/drivers/ipm.h>
 #include <zephyr/shell/shell_rpmsg.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/version.h>
 #include <string.h>
 
 #include <openamp/open_amp.h>
@@ -166,6 +167,10 @@ static void rpmsg_thread(void *a, void *b, void *c)
 		LOG_ERR("echo endpoint failed");
 	}
 	LOG_INF("RPMsg link up: shell on rpmsg-tty, echo on rpmsg-client-sample");
+	shell_print(shell_backend_rpmsg_get_ptr(),
+		    "\n*** i.MX95 Cortex-M7 online: Zephyr %s, m7-netipc, board %s ***\n"
+		    "*** RPMsg shell from Linux. Try: m7 status | net iface | kernel threads ***",
+		    KERNEL_VERSION_STRING, CONFIG_BOARD_TARGET);
 	app_rpmsg_up = true;
 
 	while (1) {

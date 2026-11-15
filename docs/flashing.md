@@ -13,8 +13,11 @@ the image runs Weston.
 | **RJ45 ENET1** (next to the 10G port, RTL8211 PHY) | ENETC0: Linux `end0` **and** the M7's VF. Plug it into a LAN with DHCP. |
 | Power | 12 V barrel jack + power switch |
 
-Serial terminal on the host: `picocom -b 115200 /dev/ttyUSB2`, or `screen /dev/ttyUSB2 115200`.
-Your user must be in the `dialout` group. Run `groups` to check; adding it needs sudo and a fresh login.
+On the host: `scripts/board.sh ports` lists the four ports, `scripts/board.sh serial [a55|m7|sm]`
+opens one, and `scripts/board.sh tmux` opens all of them in one tmux dashboard. The script's default
+port → UART mapping is a guess: confirm it once and put it in `~/.config/imx95-devenv/board.conf`
+(format in the `board.sh` header).
+Your user must be in the `dialout` group: `sudo usermod -aG dialout $USER`, then log out and back in.
 
 ## Boot mode
 
@@ -37,13 +40,13 @@ contains the `flash_a55` boot image at the right offset.
 
 ## First boot checklist
 
-On the A55 console (log in as `root`, no password):
+The A55 console logs in as root automatically and drops you into the `imx95` tmux session.
+The `M7` window shows the Zephyr shell; switch to `Linux` with `Ctrl-b l`:
 
 ```sh
 cat /sys/devices/soc0/revision    # silicon revision, see docs/silicon-revision.md
-ip -br addr                       # end0 gets a DHCP address -> use it for SSH
-passwd                            # set a root password before exposing the board
-systemctl status m7-vf-handoff m7-autostart rootfs-grow
+ip -br addr                       # end0 gets a DHCP address -> scripts/board.sh ssh <ip>
+systemctl status m7-vf-handoff m7-autostart imx95-console rootfs-grow
 m7ctl status                      # state: running, firmware imx95-m7-zephyr.elf
 m7ctl console                     # Zephyr shell: "m7 status", "net iface", "net ping <ip>"
 ```

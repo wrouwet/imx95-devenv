@@ -51,6 +51,16 @@ work out from the files: current status, decisions and the reasons for them, got
 - **Zephyr built outside Yocto** and injected via `M7_FIRMWARE_ELF` (recipe `m7-firmware`), which
   keeps Zephyr iteration fast. The recipe checks the ELF at *parse* time, so build Zephyr
   before bitbake, or the image ships without default M7 firmware (only a warning).
+- **No passwords, by user request** (2026-11-15): serial autologin as root, SSH key-only
+  (`DEVENV_SSH_PUBKEY` = `~/imx95-work/ssh/id_ed25519.pub`, passphrase-less key generated on the
+  host, never committed), password/empty-password SSH disabled in a rootfs postprocess, root has
+  no password. Don't reintroduce `empty-root-password`/`allow-empty-password`.
+- **M7 must be visible from the start, by user request**: the `imx95-console` package (tmux session
+  `imx95`: windows M7 = RPMsg shell via `m7-term`, Linux = shell). Serial and SSH logins
+  auto-attach, Weston autolaunches a terminal on it, and the host has `scripts/board.sh tmux`
+  (prefix Ctrl-a to avoid clashing with the board's Ctrl-b).
+- **Rootfs tool set, by user request** ("enough Ethernet and development tools for basic local
+  enablement"): see the image recipe. ripgrep was left out on purpose (pulls in the Rust toolchain).
 - **NXP EULA**: the user explicitly accepted it in the setup session (`ACCEPT_FSL_EULA=1`).
   Don't put NXP binaries in the repo.
 
@@ -68,6 +78,14 @@ work out from the files: current status, decisions and the reasons for them, got
   remoteproc fails to load ELF segments there ("bad phdr da").
 - The session's permission classifier blocked downloading/executing the third-party `uuu`
   binary. The user has to fetch it (see `docs/flashing.md`).
+- FT4232 debug-USB port → UART mapping in `scripts/board.sh` (if01=SM, if02=A55, if03=M7) is
+  an UNVERIFIED guess. Fix it once someone has looked at the real board.
+- The host user is NOT in `dialout` (as of setup), so serial access needs
+  `sudo usermod -aG dialout wim` plus a re-login (the user must run this).
+- tmux on the board: Weston (user weston) attaches to root's tmux server via a 0777 socket and
+  `server-access -a weston` (tmux 3.6a). If the GUI terminal shows "access not allowed", check that.
+- `rpmsg_tty` allows only one sensible reader: `m7-term` in the tmux window owns `/dev/ttyRPMSG0`,
+  so `m7ctl console` attaches to that window instead of opening the tty.
 - Bitbake's first parse takes about 10 minutes (~20 layers). That isn't a hang.
 
 ## Next steps (priority order)
@@ -77,7 +95,8 @@ work out from the files: current status, decisions and the reasons for them, got
    - record silicon revision (`/sys/devices/soc0/revision` or the U-Boot banner) in this file
    - verify: boot, `end0` DHCP, `m7ctl status` = running, `/dev/ttyRPMSG0` shell, M7 DHCP lease,
      `ping`/UDP echo to the M7 from the LAN and from Linux on the board
-   - record the FT4232 `ttyUSBn` → UART mapping in `docs/flashing.md`
+   - record the FT4232 `ttyUSBn` → UART mapping in `docs/flashing.md` and fix the defaults in `scripts/board.sh`
+   - check the console: serial autologin → tmux `imx95`, M7 window shows the banner, Weston autolaunch
 3. Things likely to need fixing on first boot (untested assumptions): `rootfs-grow` on eMMC,
    `CONFIG_DEFAULT_FDT_FILE` actually being used by the imx95 U-Boot env, the VSI driver
    working with this exact Linux PF driver version (NavQ95 tested on a different linux-imx rev).
@@ -92,5 +111,6 @@ scripts/container.sh scripts/zephyr-build.sh      # M7 ELF -> ~/imx95-work/zephy
 ACCEPT_FSL_EULA=1 scripts/yocto-build.sh           # image (setup on first run)
 scripts/yocto-build.sh imx-boot                    # just the boot image
 scripts/yocto-build.sh linux-imx -c devshell       # (needs a tty)
+scripts/board.sh serial | ssh <ip> | tmux | ports  # reach the board from the host
 sudo scripts/flash.sh emmc                         # user runs this; needs uuu
 ```

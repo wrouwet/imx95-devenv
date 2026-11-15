@@ -20,6 +20,12 @@ if [ "${ACCEPT_FSL_EULA:-0}" != 1 ]; then
     exit 1
 fi
 
+# Board SSH key (no passphrase): baked into the image, used by scripts/board.sh
+if [ ! -f "$WORK/ssh/id_ed25519" ]; then
+    mkdir -p "$WORK/ssh" && chmod 700 "$WORK/ssh"
+    ssh-keygen -q -t ed25519 -N "" -C "imx95-devenv" -f "$WORK/ssh/id_ed25519"
+fi
+
 mkdir -p "$Y" && cd "$Y"
 if [ ! -d .repo ]; then
     repo init -q -u https://github.com/nxp-imx/imx-manifest -b "$BSP_BRANCH" -m "$BSP_MANIFEST" </dev/null

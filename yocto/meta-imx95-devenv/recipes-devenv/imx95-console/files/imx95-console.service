@@ -1,0 +1,14 @@
+[Unit]
+Description=imx95 tmux console (Cortex-M7 RPMsg shell + Linux shell)
+After=m7-autostart.service systemd-modules-load.service
+Wants=m7-autostart.service
+
+[Service]
+Type=forking
+ExecStart=/usr/bin/imx95-console start
+ExecStop=/usr/bin/imx95-console stop
+Environment=HOME=/root TERM=tmux-256color
+WorkingDirectory=/root
+
+[Install]
+WantedBy=multi-user.target

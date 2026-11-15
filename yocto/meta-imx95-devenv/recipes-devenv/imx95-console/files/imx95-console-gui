@@ -1,0 +1,8 @@
+#!/bin/sh
+# Started by Weston ([autolaunch] in weston.ini): a terminal on the display,
+# attached to the imx95 tmux session with the M7 window in front.
+for i in $(seq 1 30); do
+	tmux -S /run/imx95-console/tmux.sock has-session -t imx95 2>/dev/null && break
+	sleep 1
+done
+exec weston-terminal --maximized --shell=/usr/bin/imx95-console-attach

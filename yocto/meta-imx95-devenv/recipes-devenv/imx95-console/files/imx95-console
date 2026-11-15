@@ -1,0 +1,58 @@
+#!/bin/sh
+# imx95-console - the board-wide tmux session that puts the Cortex-M7 next to Linux.
+#
+#   imx95-console start          start the session (imx95-console.service does this at boot)
+#   imx95-console attach [WIN]   attach (own view, shared windows); WIN = M7 (default) or Linux
+#   imx95-console stop
+#
+# Session "imx95", socket /run/imx95-console/tmux.sock:
+#   window 0 "M7"    : Zephyr shell + log of the M7 over RPMsg (m7-term)
+#   window 1 "Linux" : root shell on the A55
+# Serial console (ttyLP0) and SSH logins attach automatically (profile.d),
+# and Weston opens a terminal on it at startup. Board tmux prefix: Ctrl-b.
+# Opt out of auto-attach: touch ~/.no-imx95-console
+set -eu
+SOCK=/run/imx95-console/tmux.sock
+CONF=/etc/imx95-console/tmux.conf
+S=imx95
+T="tmux -S $SOCK -f $CONF"
+
+running() { $T has-session -t "$S" 2>/dev/null; }
+
+# A serial line has no window size; ask the terminal emulator for it.
+fix_serial_size() {
+	case "$(tty 2>/dev/null)" in /dev/ttyLP*|/dev/ttyS*|/dev/ttyUSB*) ;; *) return 0 ;; esac
+	old=$(stty -g)
+	stty raw -echo min 0 time 10
+	printf '\0337\033[r\033[999;999H\033[6n\0338' > /dev/tty
+	IFS='[;R' read -r _ rows cols _ < /dev/tty || true
+	stty "$old"
+	[ -n "${rows:-}" ] && [ -n "${cols:-}" ] && stty rows "$rows" cols "$cols"
+}
+
+case "${1:-attach}" in
+start)
+	running && exit 0
+	mkdir -p /run/imx95-console
+	$T new-session -d -s "$S" -n M7 -x 160 -y 48 /usr/bin/m7-term
+	$T new-window -d -t "$S:1" -n Linux -c /root
+	$T select-window -t "$S:0"
+	# Weston runs as user "weston"; let it attach (tmux server-access ACL).
+	chmod 0777 "$SOCK"
+	id weston >/dev/null 2>&1 && $T server-access -a weston 2>/dev/null || true
+	;;
+stop)
+	running && $T kill-server || true
+	;;
+attach)
+	win=${2:-M7}
+	if ! running; then
+		if [ "$(id -u)" = 0 ]; then "$0" start; else echo "imx95-console not running" >&2; exit 1; fi
+	fi
+	fix_serial_size
+	# Grouped session: every client gets its own current window, same windows.
+	exec $T new-session -t "$S" \; set-option destroy-unattached on \; select-window -t "$win"
+	;;
+*)
+	sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+esac

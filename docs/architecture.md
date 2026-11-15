@@ -100,3 +100,18 @@ No IOMMU setup is needed, which matches the NavQ95 reference.
 
 Ideas for going further: a dedicated VLAN for M7 traffic (`ip link set end0 vf 1 vlan N`), PTP
 time sync (the NETC timer is owned by Linux; `ptp4l` on `end0`), and TSN/Qbv on the PF.
+
+## Consoles (`imx95-console` package)
+
+- `imx95-console.service` (after `m7-autostart`) starts tmux session `imx95` on socket
+  `/run/imx95-console/tmux.sock` with config `/etc/imx95-console/tmux.conf`. Window `M7` runs `m7-term`,
+  a loop that waits for `/dev/ttyRPMSG0`, runs `picocom` on it, and reconnects after the M7 restarts.
+  Window `Linux` is a root shell. The status bar polls `m7ctl state`.
+- `serial-getty@ttyLP0` gets an `--autologin root` drop-in. `/etc/profile.d/zz-imx95-console.sh`
+  attaches interactive serial and SSH logins with `imx95-console attach`, which creates a grouped
+  session per client (independent current window, shared windows). It first queries the serial
+  terminal's size, since serial lines have none.
+- Weston (user `weston`) runs `[autolaunch] imx95-console-gui` → `weston-terminal --shell=imx95-console-attach`.
+  tmux `server-access -a weston` and a 0777 socket let it attach to root's server.
+- Zephyr side: RPMsg shell prompt `m7:~$ `, UART prompt `m7-uart:~$ `, a banner when the RPMsg link
+  comes up, and Zephyr logs go to both shells.

@@ -5,7 +5,8 @@
 #   m7ctl load <file.elf>        copy ELF to /lib/firmware and select it
 #   m7ctl start | stop | restart
 #   m7ctl run <file.elf>         stop (if running), load, start
-#   m7ctl console                attach to the M7's RPMsg TTY (Ctrl-A Ctrl-X exits)
+#   m7ctl state                  print just the remoteproc state (offline/running/...)
+#   m7ctl console                M7 window of the imx95 tmux console (or raw RPMsg TTY)
 #
 # Zephyr images must be built for imx95_evk/mimx9596/m7/ddr (or m7 for TCM)
 # with a resource table (CONFIG_OPENAMP_RSC_TABLE); see zephyr/ in the repo.
@@ -40,6 +41,7 @@ do_load() {
 }
 
 case "${1:-status}" in
+state)   state ;;
 status)
 	echo "remoteproc: $R ($(cat "$R/name"))"
 	echo "state:      $(state)"
@@ -52,9 +54,12 @@ stop)    do_stop ;;
 restart) do_stop; echo start > "$R/state" ;;
 run)     [ $# -eq 2 ] || { echo "usage: m7ctl run <file.elf>" >&2; exit 2; }; do_stop; do_load "$2"; echo start > "$R/state" ;;
 console)
+	if command -v imx95-console >/dev/null && [ -z "${TMUX:-}" ]; then
+		exec imx95-console attach M7
+	fi
 	tty=$(ls /dev/ttyRPMSG* 2>/dev/null | head -1)
 	[ -n "$tty" ] || { echo "m7ctl: no /dev/ttyRPMSG* (M7 not running, or rpmsg_tty not loaded)" >&2; exit 1; }
 	exec picocom -q "$tty"
 	;;
-*) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+*) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac

@@ -1,0 +1,36 @@
+#!/bin/sh
+# m7-term - runs in the "M7" tmux window: connects to the Cortex-M7's Zephyr
+# shell over RPMsg (/dev/ttyRPMSG0) and reconnects whenever the M7 is
+# (re)started. Zephyr log messages arrive in the same terminal.
+# Inside: type "help" or "m7 status". Ctrl-a Ctrl-x leaves picocom (it reconnects).
+
+banner() {
+	printf '\033[2J\033[H'
+	printf '\033[1;36m==== i.MX95 Cortex-M7 (Zephyr) ====\033[0m\n'
+	m7ctl status 2>&1 | sed 's/^/  /'
+	echo
+}
+
+last=""
+while true; do
+	modprobe -q rpmsg_tty 2>/dev/null || true
+	tty=$(ls /dev/ttyRPMSG* 2>/dev/null | head -1)
+	if [ -n "$tty" ]; then
+		banner
+		printf 'Connected to %s. Type "help" or "m7 status". Ctrl-a Ctrl-x to disconnect.\n\n' "$tty"
+		# Nudge the Zephyr shell so it prints its prompt
+		( sleep 0.5; printf '\r' > "$tty" ) &
+		picocom -q --noreset "$tty"
+		last=""
+		sleep 1
+	else
+		state=$(m7ctl state 2>/dev/null || echo unknown)
+		if [ "$state" != "$last" ]; then
+			banner
+			printf 'Waiting for the M7 RPMsg shell (M7 state: %s).\n' "$state"
+			printf 'Start firmware with:  m7ctl run /lib/firmware/imx95-m7-zephyr.elf\n'
+			last=$state
+		fi
+		sleep 2
+	fi
+done

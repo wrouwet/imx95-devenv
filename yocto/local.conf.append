@@ -12,12 +12,16 @@ SYSTEM_MANAGER_CONFIG:mx95-nxp-bsp = "mx95devenv"
 # Boot image without an M7 image: Linux loads the M7 via remoteproc
 IMXBOOT_TARGETS:mx95-nxp-bsp = "flash_a55"
 
+# SSH public key installed for root (key-only SSH, no passwords anywhere)
+DEVENV_SSH_PUBKEY = "@WORK@/ssh/id_ed25519.pub"
+
 # Zephyr ELF baked into the image as the default M7 firmware (optional)
 M7_FIRMWARE_ELF = "@WORK@/zephyr-ws/build/m7-netipc/zephyr/zephyr.elf"
 
 # Shared download/sstate caches outside the build dir
 DL_DIR = "@WORK@/yocto/downloads"
 SSTATE_DIR = "@WORK@/yocto/sstate-cache"
+BB_HASHSERVE_DB_DIR = "${SSTATE_DIR}"
 
 # Keep disk usage in check (~200 GB host disk)
 INHERIT += "rm_work"
