@@ -11,7 +11,7 @@ the image runs Weston.
 | **Debug USB-C** (FT4232H) | 4 serial ports appear on the host (`/dev/ttyUSB0..3`, 115200 8N1). They carry the A55 Linux console (LPUART1), the System Manager log on the M33 (LPUART2) and the **M7 Zephyr console** (LPUART3). Which `ttyUSBn` is which depends on enumeration, so open them all once and note the mapping. |
 | **USB-C download port** | `uuu` flashing in Serial Download mode |
 | **RJ45 ENET1** (next to the 10G port, RTL8211 PHY) | ENETC0: Linux `end0` **and** the M7's VF. Plug it into a LAN with DHCP. |
-| **MIPI DSI/CSI connector** + HDMI adapter | Display for Linux (Weston). ADV7535 (NXP IMX-MIPI-HDMI, the EVK default) or LT9611UXC adapter, detected by U-Boot (see below) |
+| **MIPI DSI/CSI connector** + HDMI adapter (this board: NXP **IMX-MIPI-HDMI**, ADV7535) | Display for Linux (Weston). ADV7535 (NXP IMX-MIPI-HDMI, the EVK default) or LT9611UXC adapter, detected by U-Boot (see below) |
 | Power | 12 V barrel jack + power switch |
 
 On the host: `scripts/board.sh ports` lists the four ports, `scripts/board.sh serial [a55|m7|sm]`

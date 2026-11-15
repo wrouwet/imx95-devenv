@@ -62,7 +62,7 @@ work out from the files: current status, decisions and the reasons for them, got
 - **Rootfs tool set, by user request** ("enough Ethernet and development tools for basic local
   enablement"): see the image recipe. ripgrep was left out on purpose (pulls in the Rust toolchain).
 - **HDMI display for Linux, by user request**: the user has an HDMI monitor on an adapter in the
-  MIPI DSI/CSI connector (exact adapter unknown). U-Boot autodetects LT9611UXC (i2c1 @0x2b) and
+  MIPI DSI/CSI connector: **NXP IMX-MIPI-HDMI (ADV7535)**, confirmed by the user 2026-11-15. U-Boot autodetects LT9611UXC (i2c1 @0x2b) and
   otherwise uses ADV7535 (NXP EVK default). Console layout is one split window (M7 top, Linux bottom)
   so the monitor shows both cores at once.
 - **NXP EULA**: the user explicitly accepted it in the setup session (`ACCEPT_FSL_EULA=1`).
@@ -106,7 +106,7 @@ work out from the files: current status, decisions and the reasons for them, got
      `ping`/UDP echo to the M7 from the LAN and from Linux on the board
    - record the FT4232 `ttyUSBn` → UART mapping in `docs/flashing.md` and fix the defaults in `scripts/board.sh`
    - check the console: serial autologin → tmux `imx95`, M7 pane shows the banner, Weston autolaunch
-   - HDMI: which adapter is fitted (ADV7535/LT9611UXC)? Does U-Boot's autodetect print the right dtb?
+   - HDMI: the adapter is IMX-MIPI-HDMI (ADV7535). U-Boot should print `fdtfile=imx95-19x19-evk-devenv-adv7535.dtb`
 3. Things likely to need fixing on first boot (untested assumptions): `rootfs-grow` on eMMC,
    `CONFIG_DEFAULT_FDT_FILE` actually being used by the imx95 U-Boot env, the VSI driver
    working with this exact Linux PF driver version (NavQ95 tested on a different linux-imx rev).
