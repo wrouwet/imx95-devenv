@@ -7,7 +7,7 @@ A development environment for the **NXP i.MX95 19x19 LPDDR5 EVK** (board code
   "wrynose", kernel 6.18), with a custom developer image (`imx95-devenv-image`).
   It has key-only SSH, Weston, native gcc/g++/make/cmake/meson/ninja, kernel
   headers/sources for out-of-tree modules, gdb/strace/ltrace/valgrind/perf,
-  vim/nano/tmux, and networking tools (ethtool, iproute2+tc, tcpdump, nmap, iperf2/3,
+  Rust (rustc/cargo/clippy/rustfmt), vim/nano/tmux, ripgrep, and networking tools (ethtool, iproute2+tc, tcpdump, nmap, iperf2/3,
   linuxptp, lldpd, phytool, mdio-tools, socat/netcat). It also has everything needed
   to build Zephyr *on the board*.
 - **Zephyr on the Cortex-M7**: Zephyr v4.5.0, board `imx95_evk/mimx9596/m7/ddr`,

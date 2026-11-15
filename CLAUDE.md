@@ -33,7 +33,7 @@ work out from the files: current status, decisions and the reasons for them, got
 
 - **NXP BSP `imx-6.18.37-2.1.0`** (latest at setup time), `fsl-imx-wayland` distro, custom image
   rather than `imx-image-full`: the full image (Qt/Chromium) doesn't fit in ~200 GB of disk or
-  a reasonable build time. Weston is included because a monitor will be attached later.
+  a reasonable build time. Weston is included because a monitor is attached. **No Qt** (user: "I don't need qt"): `DISTRO_FEATURES:remove = "qt"`. The NXP distro enables it, and libcamera (via pipewire) would then build Qt6.
 - **Linux loads the M7 (remoteproc)**: `IMXBOOT_TARGETS = flash_a55` (no M7 in the boot
   image) and SM config based on `mx95evkrpmsg` (AP has `LMM_1 ALL`). The stock `mx95evk`
   only has `LMM_1 NOTIFY`, so remoteproc couldn't boot the M7.
@@ -60,7 +60,7 @@ work out from the files: current status, decisions and the reasons for them, got
   auto-attach, Weston autolaunches a terminal on it, and the host has `scripts/board.sh tmux`
   (prefix Ctrl-a to avoid clashing with the board's Ctrl-b).
 - **Rootfs tool set, by user request** ("enough Ethernet and development tools for basic local
-  enablement"): see the image recipe. ripgrep was left out on purpose (pulls in the Rust toolchain).
+  enablement"): see the image recipe. Rust (rustc, cargo, clippy, rustfmt) and ripgrep are included on the board, by user request.
 - **HDMI display for Linux, by user request**: the user has an HDMI monitor on an adapter in the
   MIPI DSI/CSI connector: **NXP IMX-MIPI-HDMI (ADV7535)**, confirmed by the user 2026-11-15. U-Boot autodetects LT9611UXC (i2c1 @0x2b) and
   otherwise uses ADV7535 (NXP EVK default). Console layout is one split window (M7 top, Linux bottom)

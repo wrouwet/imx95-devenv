@@ -72,6 +72,9 @@ IMAGE_INSTALL += " \
     xz zstd file rsync curl wget tar gzip unzip patch diffutils \
 "
 
+# Rust: native rustc/cargo on the board (+ clippy, rustfmt), by user request
+IMAGE_INSTALL += "packagegroup-rust-sdk-target rust-tools-clippy rust-tools-rustfmt ripgrep"
+
 # Networking: config, debugging, performance, PTP and PHY access
 IMAGE_INSTALL += " \
     ethtool iproute2 iproute2-tc iputils net-tools bridge-utils \
