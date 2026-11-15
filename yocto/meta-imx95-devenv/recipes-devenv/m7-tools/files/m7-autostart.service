@@ -1,0 +1,14 @@
+[Unit]
+Description=Load and start the default Cortex-M7 firmware
+After=m7-vf-handoff.service
+ConditionPathExists=/lib/firmware/imx95-m7-zephyr.elf
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+EnvironmentFile=-/etc/default/m7
+ExecStart=/bin/sh -c '[ "${M7_AUTOSTART:-yes}" = yes ] || exit 0; modprobe rpmsg_tty || true; exec /usr/bin/m7ctl run "/lib/firmware/${M7_FIRMWARE:-imx95-m7-zephyr.elf}"'
+ExecStop=/usr/bin/m7ctl stop
+
+[Install]
+WantedBy=multi-user.target

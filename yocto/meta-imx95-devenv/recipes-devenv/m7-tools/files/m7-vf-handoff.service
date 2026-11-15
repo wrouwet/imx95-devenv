@@ -1,0 +1,14 @@
+[Unit]
+Description=Hand ENETC0 VF1 to the Cortex-M7 (Zephyr NETC VSI)
+After=systemd-udev-settle.service network-pre.target
+Wants=network-pre.target
+Before=network-online.target m7-autostart.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# The PF netdev can appear a little after udev settles; retry a few times.
+ExecStart=/bin/sh -c 'for i in 1 2 3 4 5 6 7 8 9 10; do /usr/sbin/m7-vf-handoff && exit 0; sleep 1; done; exit 1'
+
+[Install]
+WantedBy=multi-user.target

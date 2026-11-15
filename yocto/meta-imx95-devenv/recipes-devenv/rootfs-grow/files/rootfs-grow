@@ -1,0 +1,12 @@
+#!/bin/sh
+# Grow the root partition (must be the last partition on the boot device) and
+# its ext4 filesystem to fill the eMMC/SD card. Runs once, then disables itself.
+set -eu
+root=$(findmnt -n -o SOURCE /)
+disk=/dev/$(lsblk -n -o PKNAME "$root")
+part=$(cat "/sys/class/block/$(basename "$root")/partition")
+echo "rootfs-grow: growing $root (partition $part of $disk)"
+echo ", +" | sfdisk --no-reread --no-tell-kernel -N "$part" "$disk"
+partx -u "$disk"
+resize2fs "$root"
+systemctl disable rootfs-grow.service

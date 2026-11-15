@@ -1,0 +1,48 @@
+--- configs/other/mx95evkrpmsg.cfg	2026-11-15 11:29:51.087602942 -0600
++++ configs/mx95devenv.cfg	2026-11-15 11:33:39.164822375 -0600
+@@ -30,12 +30,12 @@
+ ##
+ ## ###################################################################
+ 
+-# SM configuration file for the MX95 EVK
++# SM configuration file for the MX95 EVK (imx95-devenv: rpmsg + M7 owns ENETC0 VF1)
+ 
+ MAKE    soc=MIMX95, board=mcimx95evk, build=gcc_cross
+ DOX     name=MX95EVK, desc="i.MX95 EVK Configuration Data"
+ 
+-include ../../devices/MIMX95/configtool/device.cfg
++include ../devices/MIMX95/configtool/device.cfg
+ 
+ #==========================================================================#
+ # Board                                                                    #
+@@ -380,6 +380,14 @@
+ LPUART3             OWNER, test
+ MSGINTR1            OWNER
+ MSGINTR2            OWNER
++# imx95-devenv: ENETC0 VF1 (VSI1) is driven by Zephyr on the M7, Linux owns the PF.
++# NETC_ECAM: read PF SR-IOV VF-enable bits (VSI readiness gate).
++# NETC0: ENETC0 capability registers read by the NXP HAL.
++# NETC_LDID3: MSI/stream ID of ENETC0 VF1.
++NETC_ECAM           READONLY
++NETC0               READONLY
++NETC_VSI1           OWNER
++NETC_LDID3          OWNER, kpa=0, sid=0x22
+ MU5_A               OWNER
+ MU7_B               OWNER
+ MU8_B               OWNER
+@@ -828,7 +836,6 @@
+ NETC_IERB           OWNER
+ NETC_LDID1          OWNER, kpa=0, sid=0x20
+ NETC_LDID2          OWNER, kpa=0, sid=0x21
+-NETC_LDID3          OWNER, kpa=0, sid=0x22
+ NETC_LDID4          OWNER, kpa=0, sid=0x23
+ NETC_LDID5          OWNER, kpa=0, sid=0x24
+ NETC_LDID6          OWNER, kpa=0, sid=0x25
+@@ -837,7 +844,6 @@
+ NETC_PRB            OWNER
+ NETC_TIMER0         OWNER
+ NETC_VSI0           OWNER
+-NETC_VSI1           OWNER
+ NETC_VSI2           OWNER
+ NETC_VSI3           OWNER
+ NETC_VSI4           OWNER

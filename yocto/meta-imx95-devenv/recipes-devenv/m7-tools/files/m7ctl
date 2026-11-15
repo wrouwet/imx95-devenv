@@ -1,0 +1,60 @@
+#!/bin/sh
+# m7ctl - load, start, stop and talk to the Cortex-M7 from Linux (remoteproc).
+#
+#   m7ctl status                 remoteproc state + firmware name
+#   m7ctl load <file.elf>        copy ELF to /lib/firmware and select it
+#   m7ctl start | stop | restart
+#   m7ctl run <file.elf>         stop (if running), load, start
+#   m7ctl console                attach to the M7's RPMsg TTY (Ctrl-A Ctrl-X exits)
+#
+# Zephyr images must be built for imx95_evk/mimx9596/m7/ddr (or m7 for TCM)
+# with a resource table (CONFIG_OPENAMP_RSC_TABLE); see zephyr/ in the repo.
+set -eu
+
+find_rproc() {
+	for r in /sys/class/remoteproc/remoteproc*; do
+		[ -e "$r/name" ] || continue
+		case "$(cat "$r/name")" in *cm7*|*m7*) echo "$r"; return 0 ;; esac
+	done
+	echo "m7ctl: no Cortex-M7 remoteproc found (is imx_rproc loaded? right dtb?)" >&2
+	exit 1
+}
+
+R=$(find_rproc)
+state() { cat "$R/state"; }
+
+do_stop() {
+	if [ "$(state)" = running ] || [ "$(state)" = attached ]; then
+		echo stop > "$R/state"
+	fi
+}
+
+do_load() {
+	f=$1
+	[ -f "$f" ] || { echo "m7ctl: $f not found" >&2; exit 1; }
+	name=$(basename "$f")
+	if [ "$(readlink -f "$f")" != "$(readlink -f "/lib/firmware/$name" 2>/dev/null || true)" ]; then
+		install -m 0644 "$f" "/lib/firmware/$name"
+	fi
+	echo "$name" > "$R/firmware"
+}
+
+case "${1:-status}" in
+status)
+	echo "remoteproc: $R ($(cat "$R/name"))"
+	echo "state:      $(state)"
+	echo "firmware:   $(cat "$R/firmware")"
+	ls /dev/ttyRPMSG* 2>/dev/null | sed 's/^/rpmsg tty:  /' || true
+	;;
+load)    [ $# -eq 2 ] || { echo "usage: m7ctl load <file.elf>" >&2; exit 2; }; do_stop; do_load "$2" ;;
+start)   echo start > "$R/state" ;;
+stop)    do_stop ;;
+restart) do_stop; echo start > "$R/state" ;;
+run)     [ $# -eq 2 ] || { echo "usage: m7ctl run <file.elf>" >&2; exit 2; }; do_stop; do_load "$2"; echo start > "$R/state" ;;
+console)
+	tty=$(ls /dev/ttyRPMSG* 2>/dev/null | head -1)
+	[ -n "$tty" ] || { echo "m7ctl: no /dev/ttyRPMSG* (M7 not running, or rpmsg_tty not loaded)" >&2; exit 1; }
+	exec picocom -q "$tty"
+	;;
+*) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+esac

@@ -1,0 +1,5 @@
+# /etc/default/m7 - read by m7-autostart.service
+# Start the M7 firmware at boot (yes/no)
+M7_AUTOSTART=yes
+# Firmware file in /lib/firmware
+M7_FIRMWARE=imx95-m7-zephyr.elf

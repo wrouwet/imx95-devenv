@@ -1,0 +1,61 @@
+#!/bin/sh
+# m7-vf-handoff - give one ENETC virtual function (VSI) to Zephyr on the M7.
+#
+# Linux owns the ENETC physical function (PSI, the PHY and the RJ45 port). The
+# M7 only drives a VF of the same port, so Linux must create it and prepare it:
+#   1. disable VF autoprobe, so Linux's fsl_enetc_vf driver leaves the VF alone
+#   2. create the VFs (SR-IOV)
+#   3. set Bus Master Enable and MSI-X Enable in the VF's PCI config space,
+#      which the M7 can't write itself
+#   4. "trust" the VF, so the PF accepts the M7's MAC/multicast filter requests
+# The VF must match the System Manager config (mx95devenv: NETC_VSI1 = ENETC0
+# VF1 belongs to the M7) and the Zephyr overlay (enetc0_vsi1). Must run on every
+# boot; SR-IOV state doesn't survive a reset.
+#
+# Config: /etc/default/m7-vf-handoff (PF_PCI, PF_NETDEV, VF, NUMVFS)
+set -eu
+
+PF_PCI=""        # e.g. 0002:00:00.0; empty = auto (ENETC0, devfn 00.0 on NETC bus 0)
+PF_NETDEV=""     # alternative to PF_PCI
+VF=1
+NUMVFS=2
+[ -r /etc/default/m7-vf-handoff ] && . /etc/default/m7-vf-handoff
+
+log() { echo "m7-vf-handoff: $*"; }
+die() { echo "m7-vf-handoff: error: $*" >&2; exit 1; }
+
+[ "$(id -u)" = 0 ] || die "must run as root"
+for t in setpci ip; do command -v $t >/dev/null || die "missing $t"; done
+
+if [ -n "$PF_NETDEV" ]; then
+	PF_PCI=$(basename "$(readlink -f "/sys/class/net/$PF_NETDEV/device")")
+elif [ -z "$PF_PCI" ]; then
+	# ENETC0 is function 00.0 of the NETC integrated endpoint bus with an SR-IOV cap
+	for d in /sys/bus/pci/devices/*:00:00.0; do
+		[ -e "$d/sriov_totalvfs" ] || continue
+		# NXP ENETC4 PF: vendor 0x1131, device 0xe101 (enetc4_hw.h)
+		[ "$(cat "$d/vendor")" = 0x1131 ] && [ "$(cat "$d/device")" = 0xe101 ] || continue
+		PF_PCI=$(basename "$d"); break
+	done
+fi
+[ -n "$PF_PCI" ] || die "could not find the ENETC0 PF (set PF_PCI in /etc/default/m7-vf-handoff)"
+pf=/sys/bus/pci/devices/$PF_PCI
+[ -e "$pf/sriov_numvfs" ] || die "$PF_PCI has no SR-IOV support"
+netdev=$(ls "$pf/net" 2>/dev/null | head -1)
+[ -n "$netdev" ] || die "PF $PF_PCI has no netdev (driver not bound yet?)"
+log "PF $PF_PCI ($netdev), handing VF$VF to the M7"
+
+echo 0 > "$pf/sriov_drivers_autoprobe"
+if [ "$(cat "$pf/sriov_numvfs")" != "$NUMVFS" ]; then
+	echo 0 > "$pf/sriov_numvfs"
+	echo "$NUMVFS" > "$pf/sriov_numvfs"
+fi
+[ -e "$pf/virtfn$VF" ] || die "virtfn$VF missing under $PF_PCI"
+vf=$(basename "$(readlink -f "$pf/virtfn$VF")")
+
+setpci -s "$vf" COMMAND=0x0006               # memory space + bus master
+setpci -s "$vf" CAP_MSIX+2.w=0x8000:0x8000   # MSI-X enable
+ip link set "$netdev" vf "$VF" trust on
+ip link set "$netdev" up
+
+log "VF$VF ($vf) ready for the M7"

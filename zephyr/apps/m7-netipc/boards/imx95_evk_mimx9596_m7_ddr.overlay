@@ -1,0 +1,71 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * m7-netipc on the i.MX95 EVK Cortex-M7, running from DDR (0x80000000, loaded
+ * by Linux remoteproc into the m7-ddr reserved region).
+ *
+ * IPC: same layout as the Linux imx95-19x19-evk dts cm7 node - vrings and
+ * vdev buffers at 0x88000000, resource table at 0x88220000, MU7 doorbells.
+ *
+ * Ethernet: Linux owns NETC (block control, PSI/PF, EMDIO, PHY, PTP). The M7
+ * drives only ENETC0 VF1 (VSI) through the same RJ45 port; the System Manager
+ * config mx95devenv grants NETC_VSI1/NETC_LDID3 to the M7, and Linux's
+ * m7-vf-handoff.service enables and trusts the VF.
+ */
+
+/ {
+	chosen {
+		zephyr,ipc_shm = &shmem;
+		zephyr,ipc_rsc_table = &rsc_table;
+		zephyr,ipc = &mailbox0;
+	};
+
+	shmem: memory@88000000 {
+		compatible = "mmio-sram";
+		reg = <0x88000000 0x500000>;
+	};
+
+	rsc_table: memory@88220000 {
+		compatible = "mmio-sram";
+		reg = <0x88220000 0x100>;
+	};
+
+	mailbox0: mailbox {
+		compatible = "zephyr,mbox-ipm";
+		mboxes = <&mu7 1>, <&mu7 1>;
+		mbox-names = "tx", "rx";
+		status = "okay";
+	};
+};
+
+&mu7 {
+	status = "okay";
+};
+
+/* Owned by Linux on the A55 */
+&netc_blk_ctrl {
+	status = "disabled";
+};
+
+&enetc_psi0 {
+	status = "disabled";
+};
+
+&emdio {
+	status = "disabled";
+};
+
+&phy0 {
+	status = "disabled";
+};
+
+&enetc_ptp_clock {
+	status = "disabled";
+};
+
+/* ENETC0 VF1: the M7's network interface on the shared RJ45 port */
+&enetc0_vsi1 {
+	zephyr,random-mac-address;
+	zephyr,mac-address-prefix = [00 04 9f];
+	status = "okay";
+};

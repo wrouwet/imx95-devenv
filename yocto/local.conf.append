@@ -1,0 +1,32 @@
+
+# ---- imx95-devenv ----
+# Appended once by scripts/yocto-setup.sh. Edit here (in build/conf/local.conf)
+# for local tweaks; edit yocto/local.conf.append in the repo for shared ones.
+ACCEPT_FSL_EULA = "1"
+
+# Silicon revision of the board's i.MX95 (A0/A1 boards: see docs/silicon-revision.md)
+IMX_SOC_REV = "@IMX_SOC_REV@"
+
+# System Manager config: mx95evkrpmsg + ENETC0 VF1 owned by the M7
+SYSTEM_MANAGER_CONFIG:mx95-nxp-bsp = "mx95devenv"
+# Boot image without an M7 image: Linux loads the M7 via remoteproc
+IMXBOOT_TARGETS:mx95-nxp-bsp = "flash_a55"
+
+# Zephyr ELF baked into the image as the default M7 firmware (optional)
+M7_FIRMWARE_ELF = "@WORK@/zephyr-ws/build/m7-netipc/zephyr/zephyr.elf"
+
+# Shared download/sstate caches outside the build dir
+DL_DIR = "@WORK@/yocto/downloads"
+SSTATE_DIR = "@WORK@/yocto/sstate-cache"
+
+# Keep disk usage in check (~200 GB host disk)
+INHERIT += "rm_work"
+RM_WORK_EXCLUDE += "imx95-devenv-image linux-imx u-boot-imx imx-system-manager imx-boot"
+
+# 8 cores / 30 GB RAM host
+BB_NUMBER_THREADS = "8"
+PARALLEL_MAKE = "-j 8"
+BB_PRESSURE_MAX_MEMORY = "20000"
+
+IMAGE_FSTYPES:append = " wic.zst"
+IMAGE_FSTYPES:remove = "wic.bmap"

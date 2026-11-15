@@ -1,0 +1,11 @@
+# Build outputs live in ~/imx95-work, but guard against in-repo builds
+build/
+tmp/
+downloads/
+sstate-cache/
+*.wic
+*.wic.zst
+*.bin
+*.elf
+.venv/
+__pycache__/

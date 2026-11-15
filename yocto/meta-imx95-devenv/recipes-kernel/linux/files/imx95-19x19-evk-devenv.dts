@@ -1,0 +1,29 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * imx95-devenv: i.MX95 19x19 LPDDR5 EVK with
+ *  - the Cortex-M7 loaded and controlled from Linux via remoteproc (RPMsg over
+ *    MU7, vrings + resource table at 0x88000000, as in the base EVK dts), and
+ *  - 48 MiB of DDR at 0x80000000 reserved for Zephyr's imx95_evk/mimx9596/m7/ddr
+ *    image (Zephyr uses 0x80000000 + 42 MiB). The region is added to the cm7
+ *    memory-region list so remoteproc can load ELF segments there.
+ *
+ * Ethernet: ENETC0 (enetc_port0, RJ45 + RTL8211) stays a normal Linux PF.
+ * VF1 of that port is handed to the M7 at runtime by m7-vf-handoff.service;
+ * nothing VF-specific is needed in this device tree.
+ */
+
+#include "imx95-19x19-evk.dts"
+
+/ {
+	reserved-memory {
+		m7_ddr: m7-ddr@80000000 {
+			reg = <0 0x80000000 0 0x3000000>;
+			no-map;
+		};
+	};
+};
+
+&cm7 {
+	memory-region = <&vdevbuffer>, <&vdev0vring0>, <&vdev0vring1>,
+			<&vdev1vring0>, <&vdev1vring1>, <&rsc_table>, <&m7_ddr>;
+};
