@@ -1,5 +1,7 @@
 # imx95-devenv
 
+[![Zephyr M7 firmware](https://github.com/wrouwet/imx95-devenv/actions/workflows/zephyr-m7.yml/badge.svg)](https://github.com/wrouwet/imx95-devenv/actions/workflows/zephyr-m7.yml)
+
 A development environment for the **NXP i.MX95 19x19 LPDDR5 EVK** (board code
 `IMX95LPD5BB-19`). It covers:
 
@@ -33,7 +35,19 @@ A development environment for the **NXP i.MX95 19x19 LPDDR5 EVK** (board code
         +------------- remoteproc: load/start/stop ------------+
 ```
 
-See [docs/architecture.md](docs/architecture.md) for how this works and why.
+## Documentation
+
+| Doc | For |
+|---|---|
+| [docs/getting-started.md](docs/getting-started.md) | The whole flow once: build, flash, first boot, daily loop |
+| [docs/architecture.md](docs/architecture.md) | How it fits together and why: SM config, device tree, remoteproc, RPMsg, consoles |
+| [docs/m7-development.md](docs/m7-development.md) | Zephyr workflow (PC and on-board), memory map, adding RPMsg channels, debugging |
+| [docs/ethernet.md](docs/ethernet.md) | The shared Ethernet port: data path, setup, tests, tweaks (VLAN, fixed MAC, other ports) |
+| [docs/yocto.md](docs/yocto.md) | Layer contents, rebuilding pieces, adding packages, SDK, disk/time |
+| [docs/flashing.md](docs/flashing.md) | Connectors, debug UARTs, uuu/SD flashing, HDMI, first-boot checklist |
+| [docs/silicon-revision.md](docs/silicon-revision.md) | Finding and handling the i.MX95 silicon revision |
+| [docs/troubleshooting.md](docs/troubleshooting.md) | Symptom → cause tables for boot, M7, network, access, build |
+| [CLAUDE.md](CLAUDE.md) | Project status, decisions and gotchas (handoff notes for AI sessions and humans) |
 
 ## Repository layout
 
@@ -45,7 +59,8 @@ See [docs/architecture.md](docs/architecture.md) for how this works and why.
 | `yocto/local.conf.append` | Build settings appended to `build/conf/local.conf` |
 | `zephyr/west.yml` | West manifest (Zephyr v4.5.0 + only the modules the M7 needs) |
 | `zephyr/apps/m7-netipc/` | Reference M7 app: RPMsg + Ethernet VF |
-| `docs/` | Architecture, flashing/first boot, silicon revision, SM config diff |
+| `docs/` | See the documentation table above |
+| `.github/workflows/` | CI: builds and checks the M7 Zephyr firmware on every push |
 | `CLAUDE.md` | Status and handoff notes for AI coding sessions (and humans) |
 
 ## Quick start (host)

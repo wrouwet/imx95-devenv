@@ -1,0 +1,51 @@
+name: Zephyr M7 firmware
+
+on:
+  push:
+    paths: ["zephyr/**", "scripts/zephyr-*.sh", ".github/workflows/zephyr-m7.yml"]
+  pull_request:
+    paths: ["zephyr/**", "scripts/zephyr-*.sh", ".github/workflows/zephyr-m7.yml"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Host packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends python3-venv cmake ninja-build \
+            device-tree-compiler gperf ccache
+
+      - name: Cache Zephyr workspace and SDK
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/zephyr-ws
+            ~/zephyr-sdk-1.0.1
+          key: zephyr-${{ hashFiles('zephyr/west.yml') }}-sdk-1.0.1
+
+      - name: Workspace + SDK (scripts/zephyr-setup.sh)
+        run: scripts/zephyr-setup.sh ~/zephyr-ws
+
+      - name: Build m7-netipc for imx95_evk/mimx9596/m7/ddr
+        run: ZEPHYR_WS=~/zephyr-ws scripts/zephyr-build.sh
+
+      - name: Check ELF (load address, resource table)
+        run: |
+          T=~/zephyr-sdk-1.0.1/gnu/arm-zephyr-eabi/bin/arm-zephyr-eabi
+          E=~/zephyr-ws/build/m7-netipc/zephyr/zephyr.elf
+          $T-readelf -lW $E | grep -E 'Entry|LOAD'
+          $T-readelf -SW $E | grep -q '\.resource_table' || { echo "no .resource_table"; exit 1; }
+          $T-readelf -lW $E | python3 -c '
+          import sys
+          bad = [l for l in sys.stdin if l.split()[:1] == ["LOAD"]
+                 and not 0x80000000 <= int(l.split()[2], 16) < 0x83000000]
+          sys.exit("segment outside the 0x80000000+48MiB reserved region:\n" + "".join(bad) if bad else 0)'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: m7-netipc-zephyr-elf
+          path: ~/zephyr-ws/build/m7-netipc/zephyr/zephyr.elf
