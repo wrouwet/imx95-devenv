@@ -18,6 +18,11 @@ DEVENV_SSH_PUBKEY = "@WORK@/ssh/id_ed25519.pub"
 # No Qt (not needed; NXP distro enables it and libcamera/pipewire then pull in Qt6)
 DISTRO_FEATURES:remove = "qt"
 
+# imx95-devenv dtbs (base + per-HDMI-adapter variants, built by the linux-imx
+# bbappend). Must be global, not in the kernel bbappend, so the image's
+# IMAGE_BOOT_FILES puts them on the boot partition.
+KERNEL_DEVICETREE:append:mx95-nxp-bsp = " freescale/imx95-19x19-evk-devenv.dtb freescale/imx95-19x19-evk-devenv-adv7535.dtb freescale/imx95-19x19-evk-devenv-lt9611uxc.dtb"
+
 # Zephyr ELF baked into the image as the default M7 firmware (optional)
 M7_FIRMWARE_ELF = "@WORK@/zephyr-ws/build/m7-netipc/zephyr/zephyr.elf"
 

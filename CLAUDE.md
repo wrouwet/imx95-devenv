@@ -6,15 +6,37 @@ work out from the files: current status, decisions and the reasons for them, got
 ## Status (keep this section current)
 
 <!-- STATUS-START -->
-- Last updated: 2026-11-15 by Claude (initial setup session)
-- Host build: see "Build status" below for what has actually been built/verified
+- Last updated: 2026-11-16 by Claude (autonomous overnight session)
+- **Host builds: DONE and verified** (see "Build status" below). First full image build took
+  ~23 h wall clock on the ThinkPad T480, including ~7 h paused by laptop suspend.
 - **Nothing has been tested on hardware yet.** The board (IMX95LPD5BB-19 rev A) has not been
   booted with this image. Silicon revision unknown (build assumes B0).
 <!-- STATUS-END -->
 
 ### Build status
-- Yocto `imx95-devenv-image`: see the git log / latest commit message for the last result
-- Zephyr `m7-netipc` for `imx95_evk/mimx9596/m7/ddr`: see the git log
+Verified 2026-11-16 by inspecting the build outputs (not on hardware):
+- `imx-boot-imx95-19x19-lpddr5-evk-sd.bin-flash_a55`: SM `m33_image-mx95devenv.bin`, B0 AHAB
+  container, LPDDR5 FW, TF-A/OP-TEE, U-Boot. No M7 image (remoteproc loads it).
+- U-Boot default env: `devenv_display=auto`, `loadfdt=run devenv_pickfdt; ...`.
+- Kernel: devenv / -adv7535 / -lt9611uxc dtbs decompiled and checked: `m7-ddr@80000000` 48 MiB
+  no-map, `cm7` 7 memory-regions, the right HDMI bridge node per variant. Config has remoteproc,
+  RPMsg tty/char/ctrl, `PCI_IOV`, ENETC4, ENETC VF (m).
+- Rootfs: Zephyr ELF = host build, root `*` (locked), sshd key-only, `authorized_keys` = board key,
+  serial autologin drop-in, services enabled (m7-vf-handoff, m7-autostart, imx95-console,
+  rootfs-grow), Weston `[autolaunch]`, Rust/cargo/clippy/rustfmt/rg, toolchain, net/debug tools. No Qt.
+- Disk image `imx95-devenv-image-...rootfs.wic.zst` (513 MiB, 6.2 GiB raw): imx-boot at 32 KiB = `flash_a55`
+  byte for byte; p1 FAT 256 MiB with Image + the 3 devenv dtbs (checked with `wic ls`); p2 ext4 rootfs.
+- CI (GitHub Actions `zephyr-m7.yml`) green: builds m7-netipc and checks the ELF.
+
+Bugs caught while verifying (fixed):
+1. NXP's default `EXTRA_IMAGE_FEATURES` re-added empty root password + `PermitEmptyPasswords yes`;
+   now stripped with `IMAGE_FEATURES:remove` in the image recipe.
+2. Devenv dtbs were built but NOT on the boot partition: `KERNEL_DEVICETREE:append` sat in the kernel
+   bbappend (recipe-local), so `IMAGE_BOOT_FILES` in the image didn't see it. Moved to
+   `yocto/local.conf.append`. Keep it global!
+
+Possible slimming later: target `qemu` and Xen/jailhouse bits come from NXP `MACHINE_FEATURES`
+(xen, jailhouse); clang-native and Rust dominate the build time.
 
 ## Where things live (host)
 

@@ -4,14 +4,9 @@ SRC_URI += " \
     file://devenv.cfg \
 "
 
-# Base devenv dtb plus one variant per MIPI-DSI->HDMI adapter (NXP overlays
-# applied on top). U-Boot picks one at boot by probing I2C (see u-boot bbappend).
-DEVENV_DTBS = " \
-    freescale/imx95-19x19-evk-devenv.dtb \
-    freescale/imx95-19x19-evk-devenv-adv7535.dtb \
-    freescale/imx95-19x19-evk-devenv-lt9611uxc.dtb \
-"
-KERNEL_DEVICETREE:append:mx95-nxp-bsp = " ${DEVENV_DTBS}"
+# The dtbs registered below are added to KERNEL_DEVICETREE globally in
+# yocto/local.conf.append (needed for IMAGE_BOOT_FILES). U-Boot picks the
+# per-adapter variant at boot by probing I2C (see the u-boot bbappend).
 
 # Drop the dts into the tree and register the dtbs with Kbuild (idempotent).
 do_configure:prepend:mx95-nxp-bsp() {

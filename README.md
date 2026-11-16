@@ -35,6 +35,14 @@ A development environment for the **NXP i.MX95 19x19 LPDDR5 EVK** (board code
         +------------- remoteproc: load/start/stop ------------+
 ```
 
+## Status
+
+- **Built and verified on the host (2026-11-16):** boot image (`flash_a55`, SM `mx95devenv`), kernel and
+  devenv device trees, U-Boot display autodetect, and the full disk image with M7 firmware, key-only SSH,
+  tmux console and the toolchain/tools. The M7 firmware also builds in CI.
+- **Not yet run on hardware.** First boot, RPMsg, the shared Ethernet VF and HDMI still need checking on
+  the real board. The checklist is in [docs/flashing.md](docs/flashing.md), and the live status is in [CLAUDE.md](CLAUDE.md).
+
 ## Documentation
 
 | Doc | For |

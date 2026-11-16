@@ -22,8 +22,12 @@ IMAGE_FEATURES += " \
 # - SSH: public-key only. The key in DEVENV_SSH_PUBKEY (generated on the build
 #   host by scripts/yocto-setup.sh) is installed for root. Password and
 #   empty-password logins are disabled; root has no password at all.
-# allow-root-login only lets sshd accept root (with a key, see below).
-IMAGE_FEATURES += "allow-root-login"
+# NXP's default local.conf sets EXTRA_IMAGE_FEATURES to "allow-empty-password
+# empty-root-password allow-root-login ...", which leaves root with an EMPTY
+# password and rewrites sshd_config to PermitEmptyPasswords/PermitRootLogin yes.
+# Strip those; root keeps a locked password ("*") and logs in by key only
+# (PermitRootLogin prohibit-password, set below).
+IMAGE_FEATURES:remove = "allow-empty-password empty-root-password allow-root-login"
 DEVENV_SSH_PUBKEY ??= ""
 
 ROOTFS_POSTPROCESS_COMMAND += "devenv_ssh_setup;"
