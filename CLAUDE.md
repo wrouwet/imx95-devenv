@@ -95,6 +95,8 @@ work out from the files: current status, decisions and the reasons for them, got
   `server-access -a weston` (tmux 3.6a). If the GUI terminal shows "access not allowed", check that.
 - `rpmsg_tty` allows only one sensible reader: `m7-term` in the tmux window owns `/dev/ttyRPMSG0`,
   so `m7ctl console` attaches to that window instead of opening the tty.
+- The host is a laptop (ThinkPad T480, 4C/8T). A suspend pauses the build (it happened once for about 7 h).
+  `scripts/yocto-build.sh` now wraps bitbake in `systemd-inhibit` (opt out with `NO_INHIBIT=1`).
 - Bitbake's first parse takes about 10 minutes (~20 layers). That isn't a hang.
 
 ## Next steps (priority order)

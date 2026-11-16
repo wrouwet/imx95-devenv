@@ -14,5 +14,10 @@ if [ ! -f "$WORK/yocto/build/conf/local.conf" ]; then
 fi
 
 args=("$@"); [ ${#args[@]} -eq 0 ] && args=(imx95-devenv-image)
-exec "$REPO/scripts/container.sh" bash -c \
+# Keep a laptop from suspending mid-build (a suspend just pauses the build for hours).
+inhibit=()
+if command -v systemd-inhibit >/dev/null && [ -z "${NO_INHIBIT:-}" ]; then
+    inhibit=(systemd-inhibit --what=sleep:idle:handle-lid-switch --who=imx95-devenv --why="Yocto build" --mode=block)
+fi
+exec "${inhibit[@]}" "$REPO/scripts/container.sh" bash -c \
     'cd "$WORK/yocto" && set +u && source setup-environment build >/dev/null && bitbake "$@"' _ "${args[@]}"
