@@ -5,7 +5,7 @@
 #   scripts/flash.sh [emmc|sd]        default: emmc
 #
 # Board must be in Serial Download boot mode, USB-C download port connected.
-# uuu needs USB access: run with sudo, or install NXP's udev rules (uuu -udev).
+# USB access: run `sudo scripts/host-setup.sh` once (udev rules), then no sudo needed.
 set -euo pipefail
 WORK="${WORK:-$HOME/imx95-work}"
 MACHINE="${MACHINE:-imx95-19x19-lpddr5-evk}"

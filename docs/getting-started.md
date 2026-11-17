@@ -10,7 +10,7 @@ This walks through the whole flow once, in order. Each step links to the detaile
 - A Linux x86_64 PC with `podman`, `git`, `picocom`, `tmux`, about 200 GB of free disk and as many
   cores as you can spare. The full first build takes about 8–12 h on a 4-core laptop.
 - Your user in the `dialout` group, for the USB serial ports:
-  `sudo usermod -aG dialout $USER`, then log out and back in.
+  `sudo scripts/host-setup.sh` once (udev rules for uuu + debug UARTs, adds you to `dialout`).
 
 ## 1. Clone
 
@@ -55,7 +55,7 @@ Get NXP's `uuu` (https://github.com/nxp-imx/mfgtools/releases) into `~/imx95-wor
 set the boot switches to Serial Download, connect the download USB-C port and run:
 
 ```sh
-sudo scripts/flash.sh emmc
+scripts/flash.sh emmc
 ```
 
 Then set the boot switches to eMMC. Details, plus the SD card alternative: [flashing.md](flashing.md).

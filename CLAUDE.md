@@ -107,12 +107,12 @@ Possible slimming later: target `qemu` and Xen/jailhouse bits come from NXP `MAC
   (`enetc0_vsi1`) and `m7-vf-handoff` (`VF=1`). Change all three together.
 - The M7 DDR region (0x80000000, 48 MiB reserved in Linux) must be in `&cm7 memory-region`, or
   remoteproc fails to load ELF segments there ("bad phdr da").
-- The session's permission classifier blocked downloading/executing the third-party `uuu`
-  binary. The user has to fetch it (see `docs/flashing.md`).
+- uuu 1.5.243 is in `~/imx95-work/tools/uuu` (fetched 2026-11-16 with user permission via
+  `gh release download -R nxp-imx/mfgtools`).
 - FT4232 debug-USB port → UART mapping in `scripts/board.sh` (if01=SM, if02=A55, if03=M7) is
   an UNVERIFIED guess. Fix it once someone has looked at the real board.
-- The host user is NOT in `dialout` (as of setup), so serial access needs
-  `sudo usermod -aG dialout wim` plus a re-login (the user must run this).
+- Host USB/serial access: `sudo scripts/host-setup.sh` (user runs it once) installs udev `uaccess`
+  rules for uuu + the FT4232 and adds the user to `dialout`. After that, `flash.sh`/`board.sh` need no sudo.
 - tmux on the board: Weston (user weston) attaches to root's tmux server via a 0777 socket and
   `server-access -a weston` (tmux 3.6a). If the GUI terminal shows "access not allowed", check that.
 - `rpmsg_tty` allows only one sensible reader: `m7-term` in the tmux window owns `/dev/ttyRPMSG0`,
@@ -146,5 +146,6 @@ ACCEPT_FSL_EULA=1 scripts/yocto-build.sh           # image (setup on first run)
 scripts/yocto-build.sh imx-boot                    # just the boot image
 scripts/yocto-build.sh linux-imx -c devshell       # (needs a tty)
 scripts/board.sh serial | ssh <ip> | tmux | ports  # reach the board from the host
-sudo scripts/flash.sh emmc                         # user runs this; needs uuu
+sudo scripts/host-setup.sh                         # once, user runs it (udev + dialout)
+scripts/flash.sh emmc                              # uuu in ~/imx95-work/tools
 ```

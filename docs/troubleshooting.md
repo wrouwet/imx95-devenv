@@ -28,7 +28,7 @@ See the table at the end of [ethernet.md](ethernet.md).
 
 | Symptom | Check / fix |
 |---|---|
-| `board.sh serial`: no access | `sudo usermod -aG dialout $USER`, then log in again |
+| `board.sh serial` / `flash.sh`: no access | `sudo scripts/host-setup.sh` (udev uaccess rules + dialout) |
 | `board.sh ports`: no FTDI ports | Debug USB-C not connected, or the board is unpowered (the FT4232 is powered by the board) |
 | SSH: `Permission denied (publickey)` | Use `scripts/board.sh ssh <ip>` (passes `~/imx95-work/ssh/id_ed25519`). If the image was built with a different key, set `DEVENV_SSH_PUBKEY` and rebuild, or add your key via the serial console |
 | Wrong UART in `board.sh` | Set `IMX95_A55_TTY`/`IMX95_M7_TTY`/`IMX95_SM_TTY` in `~/.config/imx95-devenv/board.conf` |

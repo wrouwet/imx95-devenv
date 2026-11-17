@@ -18,7 +18,7 @@ On the host: `scripts/board.sh ports` lists the four ports, `scripts/board.sh se
 opens one, and `scripts/board.sh tmux` opens all of them in one tmux dashboard. The script's default
 port → UART mapping is a guess: confirm it once and put it in `~/.config/imx95-devenv/board.conf`
 (format in the `board.sh` header).
-Your user must be in the `dialout` group: `sudo usermod -aG dialout $USER`, then log out and back in.
+Run `sudo scripts/host-setup.sh` once: it installs udev rules (uuu + FT4232, effective immediately) and adds you to `dialout`.
 
 ## Boot mode
 
@@ -31,7 +31,7 @@ board's silkscreen or in NXP's *i.MX95 EVK Quick Start Guide* for **Serial Downl
 1. Get `uuu` from https://github.com/nxp-imx/mfgtools/releases and save it as
    `~/imx95-work/tools/uuu` (`chmod +x`). It's a single static binary.
 2. Set the board to **Serial Download** and connect the USB-C download port to the host.
-3. Run `sudo scripts/flash.sh emmc`, or install NXP's udev rules first and drop `sudo`.
+3. Run `scripts/flash.sh emmc` (after `sudo scripts/host-setup.sh`; otherwise prefix `sudo`).
 4. Power off, set the boot mode to **eMMC**, power on.
 
 To use an SD card instead, write the `.wic.zst` from the host:
