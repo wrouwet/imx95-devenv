@@ -171,7 +171,10 @@ The board's eMMC has the first image plus fixes copied by hand; the repo has all
    refused), root `*`, Weston up without monitor. HDMI was unplugged for this run (verified earlier).
 2. eth0 IPv4 link-local fallback: added (recipe `devenv-network`, drop-in
    `/etc/systemd/network/80-wired.network.d/10-link-local.conf`, Linux tries 169.254.95.2 first).
-   Verified on the board by installing the drop-in by hand; in the image from the next rebuild.
+   Verified on the board (installed by hand, survives reboot: eth0 = 169.254.95.2, laptop ping OK).
+   In the image built 2026-11-16 21:52 (`...rootfs-20261117034502.wic.zst`, checked). The board's
+   eMMC has the 21:20 image + this one drop-in, i.e. the same content; reflash with
+   `scripts/flash-from-linux.sh` whenever convenient.
 3. M7 DHCP on a real LAN (so far only link-local on a direct laptop cable).
 4. Nice to have: an `rpmsg_char` example on Linux; VLAN/PTP for the M7 VF; an iperf server on the M7;
    a smaller terminal font on HDMI if the user wants it.
