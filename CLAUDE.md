@@ -17,9 +17,11 @@ work out from the files: current status, decisions and the reasons for them, got
   RJ45, UDP echo from the M7 works. Linux names the ports `eth0`/`eth1` (not `end0`). Board-internal
   Linux<->M7 over Ethernet does not work (no PF/VF loopback); use RPMsg. Key fix: VF1's IOMMU group
   must be `identity` (m7-vf-handoff), otherwise SMMU faults kill Linux Ethernet too.
-- **Not yet verified:** HDMI picture; M7 DHCP from a real LAN.
+- **HDMI verified**: IMX-MIPI-HDMI (ADV7535) at 1920x1080@60 (PLL2410W monitor), Weston shows the
+  tmux console (M7 top, Linux bottom).
+- **Not yet verified:** M7 DHCP from a real LAN; uuu flashing (cable).
 - The eMMC currently holds the first image + fixes copied by hand (dtbs, m7ctl, M7 ELF, weston.ini,
-  usb-gadget-net). A rebuilt image with all fixes is the next thing to flash.
+  usb-gadget-net). A rebuilt image with all fixes is the next thing to flash (see Next steps).
 - **Silicon = B0** (factory image: `SOC MIMX95(B0)`, U-Boot `rev2.0`, Linux soc0 revision `2.0`).
 - Factory image (gone now): NXP LF 6.12.20, U-Boot 2025.04, SM build 633.
 <!-- STATUS-END -->
@@ -156,17 +158,23 @@ Possible slimming later: target `qemu` and Xen/jailhouse bits come from NXP `MAC
 
 ## Next steps (priority order)
 
-1. Finish/verify the host builds (Yocto image + Zephyr ELF) if not done. Update Status above.
-2. **On hardware** (user has the board, serial console only at first):
-   - verify: boot, `end0` DHCP, `m7ctl status` = running, `/dev/ttyRPMSG0` shell, M7 DHCP lease,
-     `ping`/UDP echo to the M7 from the LAN and from Linux on the board
-   - check the console: serial autologin → tmux `imx95`, M7 pane shows the banner, Weston autolaunch
-   - HDMI: the adapter is IMX-MIPI-HDMI (ADV7535). U-Boot should print `fdtfile=imx95-19x19-evk-devenv-adv7535.dtb`
-3. Things likely to need fixing on first boot (untested assumptions): `rootfs-grow` on eMMC,
-   `CONFIG_DEFAULT_FDT_FILE` actually being used by the imx95 U-Boot env, the VSI driver
-   working with this exact Linux PF driver version (NavQ95 tested on a different linux-imx rev).
-4. Nice to have: CI that runs `zephyr-build.sh` (GitHub Actions, Zephyr docker image);
-   an `rpmsg_char` example on Linux; VLAN/PTP for the M7 VF (see the end of the architecture doc).
+State at the end of the 2026-11-16 session: everything the user asked for is verified on hardware
+(boot, M7 load + RPMsg, tmux consoles, key-only SSH, Ethernet to both cores, HDMI at 1080p).
+The board's eMMC has the first image plus fixes copied by hand; the repo has all of them.
+
+1. Rebuild the image (`scripts/yocto-build.sh`) and check it contains today's fixes: devenv dtbs
+   with `dma-channel-mask`, m7ctl, m7-vf-handoff (IOMMU identity), the Zephyr ELF with `.interrupts`
+   and no `OPENAMP_COPY_RSC_TABLE`, weston.ini `require-outputs=none`, the waiting
+   `imx95-console-gui`, usb-gadget-net. A rebuild was running when the session ended; it started
+   before the imx95-console-gui change, so run bitbake again.
+2. Reflash the board with that image. uuu needs a USB3-capable USB-C cable (fastboot fails at
+   SuperSpeed otherwise). Without one: boot Linux on the board, copy the .wic.zst to /dev/shm over the
+   USB network (scp to 192.168.95.2), `zstd -dc | dd of=/dev/mmcblk0` with the root fs read-only
+   (`echo u > /proc/sysrq-trigger`), then reset at once (do not drop caches or run other commands;
+   see finding 6). Document this in docs/flashing.md.
+3. M7 DHCP on a real LAN (so far only link-local on a direct laptop cable).
+4. Nice to have: an `rpmsg_char` example on Linux; VLAN/PTP for the M7 VF; an iperf server on the M7;
+   a smaller terminal font on HDMI if the user wants it.
 
 ## Commands
 
