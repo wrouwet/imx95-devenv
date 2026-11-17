@@ -21,7 +21,7 @@ work out from the files: current status, decisions and the reasons for them, got
   tmux console (M7 top, Linux bottom).
 - **Not yet verified:** M7 DHCP from a real LAN; uuu flashing (cable).
 - The eMMC currently holds the first image + fixes copied by hand (dtbs, m7ctl, M7 ELF, weston.ini,
-  usb-gadget-net). A rebuilt image with all fixes is the next thing to flash (see Next steps).
+  usb-gadget-net). The rebuilt image with all fixes (built 2026-11-16 21:20) is the next thing to flash (see Next steps).
 - **Silicon = B0** (factory image: `SOC MIMX95(B0)`, U-Boot `rev2.0`, Linux soc0 revision `2.0`).
 - Factory image (gone now): NXP LF 6.12.20, U-Boot 2025.04, SM build 633.
 <!-- STATUS-END -->
@@ -162,11 +162,11 @@ State at the end of the 2026-11-16 session: everything the user asked for is ver
 (boot, M7 load + RPMsg, tmux consoles, key-only SSH, Ethernet to both cores, HDMI at 1080p).
 The board's eMMC has the first image plus fixes copied by hand; the repo has all of them.
 
-1. Rebuild the image (`scripts/yocto-build.sh`) and check it contains today's fixes: devenv dtbs
-   with `dma-channel-mask`, m7ctl, m7-vf-handoff (IOMMU identity), the Zephyr ELF with `.interrupts`
-   and no `OPENAMP_COPY_RSC_TABLE`, weston.ini `require-outputs=none`, the waiting
-   `imx95-console-gui`, usb-gadget-net. A rebuild was running when the session ended; it started
-   before the imx95-console-gui change, so run bitbake again.
+1. **Image with all fixes is BUILT and checked** (2026-11-16 21:20, `imx95-devenv-image-...rootfs.wic.zst`,
+   537582625 bytes): rootfs has the waiting `imx95-console-gui`, m7ctl `imx-rproc` match,
+   m7-vf-handoff IOMMU identity, weston `require-outputs=none`, usb-gadget-net (enabled), and the
+   M7 ELF with `.interrupts` at 0x80000000 (= current Zephyr build); dtbs with `dma-channel-mask`.
+   It has NOT been flashed yet; the board runs the first image plus the same fixes copied by hand.
 2. Reflash the board with that image. uuu needs a USB3-capable USB-C cable (fastboot fails at
    SuperSpeed otherwise). Without one: boot Linux on the board, copy the .wic.zst to /dev/shm over the
    USB network (scp to 192.168.95.2), `zstd -dc | dd of=/dev/mmcblk0` with the root fs read-only
