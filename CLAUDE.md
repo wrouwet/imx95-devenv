@@ -6,14 +6,39 @@ work out from the files: current status, decisions and the reasons for them, got
 ## Status (keep this section current)
 
 <!-- STATUS-START -->
-- Last updated: 2026-11-16 by Claude (autonomous overnight session)
-- **Host builds: DONE and verified** (see "Build status" below). First full image build took
-  ~23 h wall clock on the ThinkPad T480, including ~7 h paused by laptop suspend.
-- **Nothing has been tested on hardware yet.** The board (IMX95LPD5BB-19 rev A) has not been
-  booted with this image. **Silicon = B0** (factory image: `SOC MIMX95(B0)`, U-Boot `rev2.0`), which matches the build.
-- Factory image on eMMC: NXP LF 6.12.20 (walnascar), U-Boot 2025.04, SM build 633. Its saved U-Boot env had a bad
-  CRC ("using default environment"), so our default env will be used after flashing.
+- Last updated: 2026-11-16 evening by Claude (hardware bring-up session)
+- **Board runs the image from eMMC (SW7=1010, normal boot), verified on hardware:**
+  U-Boot picks `imx95-19x19-evk-devenv-adv7535.dtb`, Linux 6.18 boots with no failed units,
+  serial autologin, rootfs-grow (59 GiB), key-only SSH (password refused), M7 auto-started by
+  remoteproc with the Zephyr ELF, RPMsg up (`/dev/ttyRPMSG0` shell in tmux pane `imx95:main.0`,
+  rpmsg-client-sample 100-message echo OK), Weston running (no monitor yet; ADV7535 `HDMI-A-1`
+  detected, disconnected), USB NCM network to the host (board 192.168.95.2, host gets DHCP).
+- **Not yet verified:** Ethernet (no cable yet; Linux names the ports `eth0`/`eth1`, not `end0`),
+  M7 VF traffic (Zephyr warns "VSI MAC filter not accepted by PSI"), HDMI picture.
+- The eMMC currently holds the first image + fixes copied by hand (dtbs, m7ctl, M7 ELF, weston.ini,
+  usb-gadget-net). A rebuilt image with all fixes is the next thing to flash.
+- **Silicon = B0** (factory image: `SOC MIMX95(B0)`, U-Boot `rev2.0`, Linux soc0 revision `2.0`).
+- Factory image (gone now): NXP LF 6.12.20, U-Boot 2025.04, SM build 633.
 <!-- STATUS-END -->
+
+### Hardware bring-up findings (2026-11-16)
+Fixed in the repo:
+1. **SError kernel panic** in `fsl_edma_chan_mux`: SM gives eDMA1 ch6 / eDMA2 ch2-3 to the M7.
+   devenv dts masks them (`dma-channel-mask` 0x40 / 0xf).
+2. **M7 started at address 0**: imx_rproc reads the boot address from ELF section `.interrupts`;
+   Zephyr calls it `rom_start`. m7-netipc's CMakeLists renames it (custom ALL target; Zephyr's
+   `extra_post_build_commands` is read before the app CMakeLists runs, so it doesn't work there).
+3. **RPMsg vring setup failed**: `CONFIG_OPENAMP_COPY_RSC_TABLE` overwrote Linux's resource table at
+   0x88220000; now off, the app uses the table in place.
+4. **m7ctl** looked for "m7" in the remoteproc name; it's `imx-rproc` (device `imx95-cm7`).
+5. **Weston exited with no monitor** and systemd gave up; `require-outputs=none` added.
+6. **uuu fastboot never enumerated**: U-Boot's dwc3 gadget runs SuperSpeed, which failed with
+   this cable/laptop (ROM SDP and SPL work). Forcing high-speed works in Linux; that's how the
+   `usb-gadget-net` recipe sets it. Flashing workaround used: boot Linux, `zstd -dc | dd` to
+   `/dev/mmcblk0` from a copy in RAM (see docs/flashing.md). Do NOT write the eMMC under a mounted
+   rootfs: the old ext4 wrote its superblock back and had to be repaired with XMODEM + `mmc write`.
+7. Console UART showed `oe:12032` RX overruns early on (bursty input lost ~16-char blocks); not
+   reproducible later. If it comes back, type slowly or use SSH over USB.
 
 ### Build status
 Verified 2026-11-16 by inspecting the build outputs (not on hardware):

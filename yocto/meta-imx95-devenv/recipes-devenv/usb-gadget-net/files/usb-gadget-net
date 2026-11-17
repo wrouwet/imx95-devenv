@@ -1,0 +1,14 @@
+#!/bin/sh
+# USB NCM network gadget on the Type-C port (board 192.168.95.2, DHCP for the host).
+# max_speed=high-speed: SuperSpeed link training fails with some cables/hosts.
+set -e
+modprobe libcomposite; modprobe usb_f_ncm
+G=/sys/kernel/config/usb_gadget/g1
+[ -e $G/UDC ] && [ -n "$(cat $G/UDC)" ] && exit 0
+mkdir -p $G/strings/0x409 $G/configs/c.1 $G/functions/ncm.usb0
+echo 0x1d6b > $G/idVendor; echo 0x0104 > $G/idProduct; echo high-speed > $G/max_speed
+echo imx95-devenv > $G/strings/0x409/product
+echo 02:00:00:95:00:01 > $G/functions/ncm.usb0/dev_addr
+echo 02:00:00:95:00:02 > $G/functions/ncm.usb0/host_addr
+[ -e $G/configs/c.1/ncm.usb0 ] || ln -s $G/functions/ncm.usb0 $G/configs/c.1/
+ls /sys/class/udc | head -1 > $G/UDC

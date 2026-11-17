@@ -61,6 +61,7 @@ IMAGE_INSTALL += " \
     kernel-modules \
     kernel-devsrc \
     m7-tools \
+    usb-gadget-net \
     m7-firmware \
     imx95-console \
     rootfs-grow \
