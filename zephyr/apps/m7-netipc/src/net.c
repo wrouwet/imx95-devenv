@@ -15,6 +15,10 @@
 #include <zephyr/net/net_mgmt.h>
 #include <zephyr/net/dhcpv4.h>
 #include <zephyr/net/socket.h>
+#include <zephyr/net/ethernet_mgmt.h>
+#include <zephyr/net/net_ip.h>
+#include <zephyr/sys/sys_io.h>
+#include <string.h>
 #include <zephyr/logging/log.h>
 
 #include "app.h"
@@ -74,6 +78,69 @@ static void udp_echo_thread(void *a, void *b, void *c)
 
 K_THREAD_DEFINE(udp_echo_tid, 4096, udp_echo_thread, NULL, NULL, NULL, 7, 0, 1000);
 
+/*
+ * Use the MAC address Linux (the PSI/PF owner) assigned to this VF.
+ *
+ * Linux enetc4 gives every VF an administrative MAC (`ip link show eth0`:
+ * "vf 1 link/ether 00:04:9f:..") and its MAC filter only accepts that address
+ * for the VF, so the PSI rejects any other primary MAC the VSI asks for
+ * ("VSI MAC filter not accepted by PSI", seen on hardware 2026-11-16) and
+ * unicast frames for it never reach the M7. The assigned address is readable
+ * from the VSI's own SIPMAR0/1 registers once the VF is enabled. The overlay's
+ * random MAC stays as the fallback when no address was assigned.
+ */
+#define VSI_NODE    DT_NODELABEL(enetc0_vsi1)
+#define VSI_BASE    DT_REG_ADDR_BY_NAME(VSI_NODE, port)
+#define VSI_SIPMAR0 0x80
+#define VSI_SIPMAR1 0x84
+
+static void adopt_psi_mac(struct net_if *iface)
+{
+	struct ethernet_req_params params = {0};
+	uint32_t lo, hi;
+	int ret;
+
+	/* The SI registers are only valid once Linux has enabled SR-IOV and the
+	 * driver brought the SI up (it then reports carrier).
+	 */
+	for (int i = 0; i < 300 && !net_if_is_carrier_ok(iface); i++) {
+		k_msleep(100);
+	}
+	if (!net_if_is_carrier_ok(iface)) {
+		LOG_WRN("VF not up after 30 s; keeping the overlay MAC");
+		return;
+	}
+
+	lo = sys_read32(VSI_BASE + VSI_SIPMAR0);
+	hi = sys_read32(VSI_BASE + VSI_SIPMAR1) & 0xffff;
+	if (lo == 0 && hi == 0) {
+		LOG_WRN("Linux assigned no VF MAC; keeping the random one");
+		return;
+	}
+	for (int i = 0; i < 4; i++) {
+		params.mac_address.addr[i] = (lo >> (8 * i)) & 0xff;
+	}
+	params.mac_address.addr[4] = hi & 0xff;
+	params.mac_address.addr[5] = hi >> 8;
+
+	if (memcmp(params.mac_address.addr, net_if_get_link_addr(iface)->addr, 6) == 0) {
+		return;
+	}
+
+	/* The MAC can only be changed while the interface is down. */
+	net_if_down(iface);
+	ret = net_mgmt(NET_REQUEST_ETHERNET_SET_MAC_ADDRESS, iface, &params, sizeof(params));
+	net_if_up(iface);
+	if (ret) {
+		LOG_ERR("setting the Linux-assigned VF MAC failed: %d", ret);
+		return;
+	}
+	const uint8_t *m = params.mac_address.addr;
+
+	LOG_INF("using the VF MAC assigned by Linux: %02x:%02x:%02x:%02x:%02x:%02x",
+		m[0], m[1], m[2], m[3], m[4], m[5]);
+}
+
 void app_net_start(void)
 {
 	struct net_if *iface = net_if_get_default();
@@ -85,9 +152,9 @@ void app_net_start(void)
 	net_mgmt_init_event_callback(&mgmt_cb, ipv4_event, NET_EVENT_IPV4_ADDR_ADD);
 	net_mgmt_add_event_callback(&mgmt_cb);
 
-	/* The VSI driver waits in the background until Linux enables the VF;
-	 * DHCP keeps retrying until the link is up.
-	 */
+	adopt_psi_mac(iface);
+
+	/* DHCP keeps retrying until the link is up. */
 	net_dhcpv4_start(iface);
 	LOG_INF("DHCPv4 started on the ENETC0 VF");
 }

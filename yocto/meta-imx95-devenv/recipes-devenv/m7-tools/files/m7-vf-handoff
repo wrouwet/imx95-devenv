@@ -53,6 +53,17 @@ fi
 [ -e "$pf/virtfn$VF" ] || die "virtfn$VF missing under $PF_PCI"
 vf=$(basename "$(readlink -f "$pf/virtfn$VF")")
 
+# The VF's DMA goes through Linux's SMMU (stream ID 0x22 for ENETC0 VF1). With no
+# Linux driver bound, its IOMMU group has an empty DMA domain, so every DMA by
+# the M7's VSI faults ("F_TRANSLATION client: 0002:00:04.0 sid: 0x22") and the
+# faults also stall the PF's TX rings (Linux Ethernet dies; seen on hardware
+# 2026-11-16). Switch the group to identity so the M7's physical addresses
+# pass straight through. Must happen before the M7 touches the VF.
+grp="$(readlink -f "/sys/bus/pci/devices/$vf/iommu_group" 2>/dev/null || true)"
+if [ -n "$grp" ] && [ -w "$grp/type" ]; then
+	echo identity > "$grp/type" || die "could not set $grp to identity"
+	log "VF$VF IOMMU group $(basename "$grp"): $(cat "$grp/type")"
+fi
 setpci -s "$vf" COMMAND=0x0006               # memory space + bus master
 setpci -s "$vf" CAP_MSIX+2.w=0x8000:0x8000   # MSI-X enable
 ip link set "$netdev" vf "$VF" trust on
