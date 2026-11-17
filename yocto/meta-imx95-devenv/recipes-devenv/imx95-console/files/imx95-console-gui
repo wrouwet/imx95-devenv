@@ -1,8 +1,19 @@
 #!/bin/sh
 # Started by Weston ([autolaunch] in weston.ini): a terminal on the display,
-# attached to the imx95 tmux session with the M7 window in front.
-for i in $(seq 1 30); do
-	tmux -S /run/imx95-console/tmux.sock has-session -t imx95 2>/dev/null && break
-	sleep 1
+# attached to the imx95 tmux session (M7 pane on top, Linux pane below).
+#
+# Weston runs with require-outputs=none, so it starts without a monitor. A
+# terminal started with no output dies right away ("error in client
+# communication"), so wait until an HDMI/DSI connector reports "connected",
+# and start the terminal again whenever it exits (closed, or monitor unplugged).
+connected() { grep -qx connected /sys/class/drm/card*-*/status 2>/dev/null; }
+
+while :; do
+	while ! connected; do sleep 2; done
+	for i in $(seq 1 30); do
+		tmux -S /run/imx95-console/tmux.sock has-session -t imx95 2>/dev/null && break
+		sleep 1
+	done
+	weston-terminal --maximized --shell=/usr/bin/imx95-console-attach
+	sleep 2
 done
-exec weston-terminal --maximized --shell=/usr/bin/imx95-console-attach
