@@ -9,7 +9,9 @@ This build defaults to **B0**, the NXP BSP 6.18 default (`IMX_SOC_REV ??= "B0"` 
 ## Finding the revision
 
 - **Serial console** of the image that shipped on the board: the first lines from the SM
-  (M33 debug UART) or U-Boot (`CPU: i.MX95 rev1.x` / `SoC: i.MX95 B0`) show it.
+  (M33 debug UART) or U-Boot show it. B0 prints `DDR OEI: SOC MIMX95(B0)` on the SM port and
+  `CPU: i.MX95 rev2.0` in U-Boot (rev2.0 = B0, not rev1.x).
+- **This board (IMX95LPD5BB-19 rev A) is B0**, read from the factory image on 2026-11-16.
 - **Chip marking**: the second line of the top marking carries the mask set/revision.
   Early boards with a `P` part-number prefix (e.g. `PIMX9596...`) are pre-production.
 - From a running Linux: `cat /sys/devices/soc0/revision`.

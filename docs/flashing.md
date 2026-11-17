@@ -8,7 +8,7 @@ the image runs Weston.
 
 | Connector | Use |
 |---|---|
-| **Debug USB-C** (FT4232H) | 4 serial ports appear on the host (`/dev/ttyUSB0..3`, 115200 8N1). They carry the A55 Linux console (LPUART1), the System Manager log on the M33 (LPUART2) and the **M7 Zephyr console** (LPUART3). Which `ttyUSBn` is which depends on enumeration, so open them all once and note the mapping. |
+| **Debug USB-C** (FT4232H) | 4 serial ports appear on the host (`/dev/ttyUSB0..3`, 115200 8N1). Verified mapping (by interface, stable across enumeration): **if00 = M7 console**, if01 = unused, **if02 = A55 Linux console**, **if03 = System Manager (M33) + DDR OEI**. Names: `/dev/serial/by-id/usb-FTDI_Quad_RS232-HS-if0N-port0`. |
 | **USB-C download port** | `uuu` flashing in Serial Download mode |
 | **RJ45 ENET1** (next to the 10G port, RTL8211 PHY) | ENETC0: Linux `end0` **and** the M7's VF. Plug it into a LAN with DHCP. |
 | **MIPI DSI/CSI connector** + HDMI adapter (this board: NXP **IMX-MIPI-HDMI**, ADV7535) | Display for Linux (Weston). ADV7535 (NXP IMX-MIPI-HDMI, the EVK default) or LT9611UXC adapter, detected by U-Boot (see below) |
@@ -16,8 +16,11 @@ the image runs Weston.
 
 On the host: `scripts/board.sh ports` lists the four ports, `scripts/board.sh serial [a55|m7|sm]`
 opens one, and `scripts/board.sh tmux` opens all of them in one tmux dashboard. The script's default
-port → UART mapping is a guess: confirm it once and put it in `~/.config/imx95-devenv/board.conf`
+port mapping is the verified one above. Override it in `~/.config/imx95-devenv/board.conf` if needed
 (format in the `board.sh` header).
+
+Boot switch **SW7** (1 = ON): `1010` = eMMC boot (normal), `1001` = USB serial download (flashing).
+This board arrived set to `1101`, which is not a documented mode and left the board silent.
 Run `sudo scripts/host-setup.sh` once: it installs udev rules (uuu + FT4232, effective immediately) and adds you to `dialout`.
 
 ## Boot mode

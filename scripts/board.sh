@@ -8,15 +8,15 @@
 #   board.sh tmux               host dashboard: one tmux window per UART (+ SSH)
 #
 # Config (optional): ~/.config/imx95-devenv/board.conf
-#   IMX95_A55_TTY=/dev/serial/by-id/...-if02-port0   # Linux console (LPUART1)
-#   IMX95_M7_TTY=/dev/serial/by-id/...-if03-port0    # M7 Zephyr UART (LPUART3)
-#   IMX95_SM_TTY=/dev/serial/by-id/...-if01-port0    # System Manager (LPUART2)
+#   IMX95_A55_TTY=/dev/serial/by-id/...-if02-port0   # Linux console (A55)
+#   IMX95_M7_TTY=/dev/serial/by-id/...-if00-port0    # M7 console
+#   IMX95_SM_TTY=/dev/serial/by-id/...-if03-port0    # System Manager (M33) + DDR OEI
 #   IMX95_BOARD_IP=192.168.1.50
-# The default interface numbers are an UNVERIFIED guess; run "board.sh ports",
-# open each one and record the real mapping in board.conf and docs/flashing.md.
+# Defaults verified on IMX95LPD5BB-19 rev A (2026-11-16): if00=M7, if01=unused,
+# if02=A55 Linux, if03=SM. by-id name: usb-FTDI_Quad_RS232-HS-if0N-port0.
 #
 # Host dashboard prefix is Ctrl-a, so Ctrl-b goes through to the board's tmux.
-# Serial ports need the "dialout" group: sudo usermod -aG dialout $USER (re-login).
+# Serial port access: sudo scripts/host-setup.sh once (udev uaccess + dialout).
 set -euo pipefail
 WORK="${WORK:-$HOME/imx95-work}"
 KEY="$WORK/ssh/id_ed25519"
@@ -24,15 +24,15 @@ CONF="${XDG_CONFIG_HOME:-$HOME/.config}/imx95-devenv/board.conf"
 # shellcheck disable=SC1090
 [ -f "$CONF" ] && . "$CONF"
 
-ft_port() { ls /dev/serial/by-id/*FT4232*-if0"$1"-port0 2>/dev/null | head -1 || true; }
+ft_port() { ls /dev/serial/by-id/usb-FTDI_Quad_RS232-HS*-if0"$1"-port0 2>/dev/null | head -1 || true; }
 A55="${IMX95_A55_TTY:-$(ft_port 2)}"
-M7="${IMX95_M7_TTY:-$(ft_port 3)}"
-SM="${IMX95_SM_TTY:-$(ft_port 1)}"
+M7="${IMX95_M7_TTY:-$(ft_port 0)}"
+SM="${IMX95_SM_TTY:-$(ft_port 3)}"
 HOST="${IMX95_BOARD_IP:-}"
 
 need_tty() {
 	[ -n "$1" ] && [ -e "$1" ] || { echo "serial port not found (board connected and powered? see: $0 ports)" >&2; exit 1; }
-	[ -r "$1" ] && [ -w "$1" ] || { echo "no access to $1: sudo usermod -aG dialout $USER, then log in again" >&2; exit 1; }
+	[ -r "$1" ] && [ -w "$1" ] || { echo "no access to $1: run sudo scripts/host-setup.sh once" >&2; exit 1; }
 }
 serial() { need_tty "$1"; exec picocom -q -b 115200 "$1"; }
 

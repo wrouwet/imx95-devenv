@@ -10,7 +10,9 @@ work out from the files: current status, decisions and the reasons for them, got
 - **Host builds: DONE and verified** (see "Build status" below). First full image build took
   ~23 h wall clock on the ThinkPad T480, including ~7 h paused by laptop suspend.
 - **Nothing has been tested on hardware yet.** The board (IMX95LPD5BB-19 rev A) has not been
-  booted with this image. Silicon revision unknown (build assumes B0).
+  booted with this image. **Silicon = B0** (factory image: `SOC MIMX95(B0)`, U-Boot `rev2.0`), which matches the build.
+- Factory image on eMMC: NXP LF 6.12.20 (walnascar), U-Boot 2025.04, SM build 633. Its saved U-Boot env had a bad
+  CRC ("using default environment"), so our default env will be used after flashing.
 <!-- STATUS-END -->
 
 ### Build status
@@ -109,8 +111,9 @@ Possible slimming later: target `qemu` and Xen/jailhouse bits come from NXP `MAC
   remoteproc fails to load ELF segments there ("bad phdr da").
 - uuu 1.5.243 is in `~/imx95-work/tools/uuu` (fetched 2026-11-16 with user permission via
   `gh release download -R nxp-imx/mfgtools`).
-- FT4232 debug-USB port → UART mapping in `scripts/board.sh` (if01=SM, if02=A55, if03=M7) is
-  an UNVERIFIED guess. Fix it once someone has looked at the real board.
+- FT4232 port mapping (VERIFIED 2026-11-16): if00=M7, if01=unused, if02=A55 Linux, if03=SM. The
+  by-id names are `usb-FTDI_Quad_RS232-HS-if0N-port0` (there's no "FT4232" in them).
+- SW7 boot switch: 1010 = eMMC, 1001 = USB serial download. It came set to 1101 (silent board).
 - Host USB/serial access: `sudo scripts/host-setup.sh` (user runs it once) installs udev `uaccess`
   rules for uuu + the FT4232 and adds the user to `dialout`. After that, `flash.sh`/`board.sh` need no sudo.
 - tmux on the board: Weston (user weston) attaches to root's tmux server via a 0777 socket and
@@ -125,10 +128,8 @@ Possible slimming later: target `qemu` and Xen/jailhouse bits come from NXP `MAC
 
 1. Finish/verify the host builds (Yocto image + Zephyr ELF) if not done. Update Status above.
 2. **On hardware** (user has the board, serial console only at first):
-   - record silicon revision (`/sys/devices/soc0/revision` or the U-Boot banner) in this file
    - verify: boot, `end0` DHCP, `m7ctl status` = running, `/dev/ttyRPMSG0` shell, M7 DHCP lease,
      `ping`/UDP echo to the M7 from the LAN and from Linux on the board
-   - record the FT4232 `ttyUSBn` → UART mapping in `docs/flashing.md` and fix the defaults in `scripts/board.sh`
    - check the console: serial autologin → tmux `imx95`, M7 pane shows the banner, Weston autolaunch
    - HDMI: the adapter is IMX-MIPI-HDMI (ADV7535). U-Boot should print `fdtfile=imx95-19x19-evk-devenv-adv7535.dtb`
 3. Things likely to need fixing on first boot (untested assumptions): `rootfs-grow` on eMMC,
