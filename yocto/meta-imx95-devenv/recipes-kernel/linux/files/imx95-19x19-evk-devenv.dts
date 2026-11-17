@@ -27,3 +27,19 @@
 	memory-region = <&vdevbuffer>, <&vdev0vring0>, <&vdev0vring1>,
 			<&vdev1vring0>, <&vdev1vring1>, <&rsc_table>, <&m7_ddr>;
 };
+
+/*
+ * eDMA channels owned by the M7 in the SM config (mx95devenv / mx95evkrpmsg):
+ * EDMA1_CH6 and EDMA2_CH2_3. Linux must not touch them: probing those channels
+ * raises an SError and panics the kernel at boot (seen on hardware 2026-11-16
+ * in fsl_edma_chan_mux). NXP's imx95-19x19-evk-rpmsg.dts disables edma1/edma2
+ * completely; masking only the M7's channels keeps DMA for Linux peripherals.
+ * Verified on the board: the kernel boots with these masks.
+ */
+&edma1 {
+	dma-channel-mask = <0x40>;	/* ch6 */
+};
+
+&edma2 {
+	dma-channel-mask = <0xf>;	/* ch0-1 (imx95.dtsi default) + ch2-3 */
+};

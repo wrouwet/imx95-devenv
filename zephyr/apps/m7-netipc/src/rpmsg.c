@@ -100,7 +100,18 @@ static int platform_init(void)
 	metal_io_init(&shm_io_data, (void *)SHM_START_ADDR, &shm_physmap, SHM_SIZE, -1, 0,
 		      addr_translation_get_ops(shm_physmap));
 
-	rsc_table_get(&rsc_table, &rsc_size);
+	/*
+	 * Use the resource table Linux placed at the shared rsc_table address
+	 * (0x88220000). Linux imx_rproc copies its cached table (with the vring
+	 * addresses it allocated) there before starting the M7 and later writes
+	 * the virtio status into it. CONFIG_OPENAMP_COPY_RSC_TABLE would memcpy
+	 * the firmware defaults over that copy at boot and break vring setup
+	 * ("failed to create RPMsg virtio device", seen on hardware 2026-11-16),
+	 * so it is off. The .resource_table section in the ELF is what Linux
+	 * parses at load time.
+	 */
+	rsc_table = (void *)DT_REG_ADDR(DT_CHOSEN(zephyr_ipc_rsc_table));
+	rsc_size = sizeof(struct fw_resource_table);
 	rsc_tab_physmap = (uintptr_t)rsc_table;
 	metal_io_init(&rsc_io_data, rsc_table, &rsc_tab_physmap, rsc_size, -1, 0, NULL);
 

@@ -15,7 +15,11 @@ set -eu
 find_rproc() {
 	for r in /sys/class/remoteproc/remoteproc*; do
 		[ -e "$r/name" ] || continue
-		case "$(cat "$r/name")" in *cm7*|*m7*) echo "$r"; return 0 ;; esac
+		# i.MX95: name is "imx-rproc", the device node is "imx95-cm7"
+		# (remoteproc0 is the Neutron NPU, "neutron-rproc").
+		case "$(cat "$r/name") $(readlink -f "$r/device")" in
+		*cm7*|*m7*|imx-rproc*) echo "$r"; return 0 ;;
+		esac
 	done
 	echo "m7ctl: no Cortex-M7 remoteproc found (is imx_rproc loaded? right dtb?)" >&2
 	exit 1
