@@ -13,8 +13,11 @@ work out from the files: current status, decisions and the reasons for them, got
   remoteproc with the Zephyr ELF, RPMsg up (`/dev/ttyRPMSG0` shell in tmux pane `imx95:main.0`,
   rpmsg-client-sample 100-message echo OK), Weston running (no monitor yet; ADV7535 `HDMI-A-1`
   detected, disconnected), USB NCM network to the host (board 192.168.95.2, host gets DHCP).
-- **Not yet verified:** Ethernet (no cable yet; Linux names the ports `eth0`/`eth1`, not `end0`),
-  M7 VF traffic (Zephyr warns "VSI MAC filter not accepted by PSI"), HDMI picture.
+- **Ethernet verified** (cable to a laptop, link-local): laptop pings Linux AND the M7 on the one
+  RJ45, UDP echo from the M7 works. Linux names the ports `eth0`/`eth1` (not `end0`). Board-internal
+  Linux<->M7 over Ethernet does not work (no PF/VF loopback); use RPMsg. Key fix: VF1's IOMMU group
+  must be `identity` (m7-vf-handoff), otherwise SMMU faults kill Linux Ethernet too.
+- **Not yet verified:** HDMI picture; M7 DHCP from a real LAN.
 - The eMMC currently holds the first image + fixes copied by hand (dtbs, m7ctl, M7 ELF, weston.ini,
   usb-gadget-net). A rebuilt image with all fixes is the next thing to flash.
 - **Silicon = B0** (factory image: `SOC MIMX95(B0)`, U-Boot `rev2.0`, Linux soc0 revision `2.0`).
@@ -37,7 +40,9 @@ Fixed in the repo:
    `usb-gadget-net` recipe sets it. Flashing workaround used: boot Linux, `zstd -dc | dd` to
    `/dev/mmcblk0` from a copy in RAM (see docs/flashing.md). Do NOT write the eMMC under a mounted
    rootfs: the old ext4 wrote its superblock back and had to be repaired with XMODEM + `mmc write`.
-7. Console UART showed `oe:12032` RX overruns early on (bursty input lost ~16-char blocks); not
+7. **SMMU blocked the M7's VF DMA** (SID 0x22): faults also stalled the PF TX rings. m7-vf-handoff
+   sets the VF's IOMMU group to `identity`. The VSI->PSI MAC registration also needs this.
+8. Console UART showed `oe:12032` RX overruns early on (bursty input lost ~16-char blocks); not
    reproducible later. If it comes back, type slowly or use SSH over USB.
 
 ### Build status
