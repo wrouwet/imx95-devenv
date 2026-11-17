@@ -42,6 +42,34 @@ To use an SD card instead, write the `.wic.zst` from the host:
 (check `sdX` with `lsblk`). Then boot with the switches set to SD. The wic image already
 contains the `flash_a55` boot image at the right offset.
 
+## Flash eMMC from Linux on the board (no uuu)
+
+uuu's second stage (U-Boot fastboot) never showed up on the host with the USB-C cable used during
+bring-up: U-Boot's dwc3 gadget runs at SuperSpeed, and that link didn't train. The ROM and SPL stages
+work. With a USB3-capable cable uuu should work. Without one, reflash from the running image over the
+USB network:
+
+```sh
+scripts/flash-from-linux.sh            # board at 192.168.95.2 (USB network), takes a few minutes
+```
+
+It copies the image into the board's RAM (checksum-verified), copies `zstd`/`dd`/`bash` and their
+libraries to tmpfs, enables SysRq, forces the root fs read-only, writes `/dev/mmcblk0` with direct
+I/O and resets the board straight away.
+
+**Why SysRq matters:** the image's default `kernel.sysrq` mask ignores the read-only and reset
+requests. The old ext4 then stays mounted read-write during the write and its journal writes old
+metadata back over the new image (MiB 0 and the first MiB of the root partition, both times this
+happened on 2026-11-16). Symptom: `EXT4-fs (mmcblk0p2): bad geometry` and a kernel panic at boot.
+
+### Checking and repairing the result from U-Boot
+
+Stop autoboot on the A55 console, then compare the eMMC with the image in 32 MiB chunks
+(`mmc read` + `crc32` in U-Boot against `zlib.crc32` of the same chunks on the host). On a
+mismatch, narrow it down to 1 MiB, send the correct MiB with `loadx 0xa0000000` (XMODEM, about
+90 s per MiB at 115200 baud) and write it with `mmc write 0xa0000000 <MiB*2048> 0x800`. This
+recovered the board twice without touching the boot switches.
+
 ## First boot checklist
 
 The A55 console logs in as root automatically and drops you into the `imx95` tmux session.

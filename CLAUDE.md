@@ -20,8 +20,8 @@ work out from the files: current status, decisions and the reasons for them, got
 - **HDMI verified**: IMX-MIPI-HDMI (ADV7535) at 1920x1080@60 (PLL2410W monitor), Weston shows the
   tmux console (M7 top, Linux bottom).
 - **Not yet verified:** M7 DHCP from a real LAN; uuu flashing (cable).
-- The eMMC currently holds the first image + fixes copied by hand (dtbs, m7ctl, M7 ELF, weston.ini,
-  usb-gadget-net). The rebuilt image with all fixes (built 2026-11-16 21:20) is the next thing to flash (see Next steps).
+- The eMMC holds the image with all fixes (built 2026-11-16 21:20), flashed with
+  `scripts/flash-from-linux.sh`'s method and verified chunk by chunk against the .wic.
 - **Silicon = B0** (factory image: `SOC MIMX95(B0)`, U-Boot `rev2.0`, Linux soc0 revision `2.0`).
 - Factory image (gone now): NXP LF 6.12.20, U-Boot 2025.04, SM build 633.
 <!-- STATUS-END -->
@@ -42,6 +42,8 @@ Fixed in the repo:
    `usb-gadget-net` recipe sets it. Flashing workaround used: boot Linux, `zstd -dc | dd` to
    `/dev/mmcblk0` from a copy in RAM (see docs/flashing.md). Do NOT write the eMMC under a mounted
    rootfs: the old ext4 wrote its superblock back and had to be repaired with XMODEM + `mmc write`.
+   Root cause (2nd time): kernel.sysrq mask ignored the `u`/`b` requests. `scripts/flash-from-linux.sh`
+   now sets `kernel.sysrq=1` first.
 7. **SMMU blocked the M7's VF DMA** (SID 0x22): faults also stalled the PF TX rings. m7-vf-handoff
    sets the VF's IOMMU group to `identity`. The VSI->PSI MAC registration also needs this.
 8. Console UART showed `oe:12032` RX overruns early on (bursty input lost ~16-char blocks); not
@@ -162,16 +164,14 @@ State at the end of the 2026-11-16 session: everything the user asked for is ver
 (boot, M7 load + RPMsg, tmux consoles, key-only SSH, Ethernet to both cores, HDMI at 1080p).
 The board's eMMC has the first image plus fixes copied by hand; the repo has all of them.
 
-1. **Image with all fixes is BUILT and checked** (2026-11-16 21:20, `imx95-devenv-image-...rootfs.wic.zst`,
-   537582625 bytes): rootfs has the waiting `imx95-console-gui`, m7ctl `imx-rproc` match,
-   m7-vf-handoff IOMMU identity, weston `require-outputs=none`, usb-gadget-net (enabled), and the
-   M7 ELF with `.interrupts` at 0x80000000 (= current Zephyr build); dtbs with `dma-channel-mask`.
-   It has NOT been flashed yet; the board runs the first image plus the same fixes copied by hand.
-2. Reflash the board with that image. uuu needs a USB3-capable USB-C cable (fastboot fails at
-   SuperSpeed otherwise). Without one: boot Linux on the board, copy the .wic.zst to /dev/shm over the
-   USB network (scp to 192.168.95.2), `zstd -dc | dd of=/dev/mmcblk0` with the root fs read-only
-   (`echo u > /proc/sysrq-trigger`), then reset at once (do not drop caches or run other commands;
-   see finding 6). Document this in docs/flashing.md.
+1. **Image with all fixes is FLASHED and verified on the board** (2026-11-16, image built 21:20):
+   boot via U-Boot defaults (adv7535 dtb), no failed units, rootfs grown to 58G, serial autologin,
+   M7 auto-started + RPMsg shell + 100/100 echo, tmux `main`(2 panes)+`shell`, VF1 IOMMU identity,
+   0 SMMU faults, laptop -> Linux 0.5 ms and -> M7 0.2 ms + UDP echo, SSH key-only (password
+   refused), root `*`, Weston up without monitor. HDMI was unplugged for this run (verified earlier).
+2. eth0 has no IPv4 on a cable without DHCP: the image's networkd config does DHCP only. Add an
+   IPv4 link-local fallback for eth0 to the image (used `/run/systemd/network/05-eth0-direct.network`
+   with `LinkLocalAddressing=yes` for testing).
 3. M7 DHCP on a real LAN (so far only link-local on a direct laptop cable).
 4. Nice to have: an `rpmsg_char` example on Linux; VLAN/PTP for the M7 VF; an iperf server on the M7;
    a smaller terminal font on HDMI if the user wants it.
