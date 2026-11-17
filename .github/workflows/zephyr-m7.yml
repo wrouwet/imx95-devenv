@@ -39,6 +39,8 @@ jobs:
           E=~/zephyr-ws/build/m7-netipc/zephyr/zephyr.elf
           $T-readelf -lW $E | grep -E 'Entry|LOAD'
           $T-readelf -SW $E | grep -q '\.resource_table' || { echo "no .resource_table"; exit 1; }
+          # Linux imx_rproc takes the M7 boot address from a section named .interrupts
+          $T-readelf -SW $E | grep -qE '\.interrupts +PROGBITS +80000000' || { echo "no .interrupts at 0x80000000"; exit 1; }
           $T-readelf -lW $E | python3 -c '
           import sys
           bad = [l for l in sys.stdin if l.split()[:1] == ["LOAD"]
