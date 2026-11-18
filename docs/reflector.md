@@ -29,6 +29,22 @@ ARP, IPv4, the UDP echo on port 7, DHCP and the RPMsg shell keep working alongsi
 Stage 2 (not done): bypass Zephyr's stack completely and busy-poll the VSI rings with the IRQs
 off, reusing the RX buffer for TX (no copies), with buffers in OCRAM or TCM instead of DDR.
 
+## Measured (stage 1, 2026-11-17)
+
+Peer: NXP MIMXRT1060-EVK (KSZ8081, 100 Mb/s) on the RJ45. The round trip runs from the RT1060's
+TX SFD to its RX SFD, using ENET IEEE 1588 hardware timestamps (40 ns resolution). No losses.
+
+| Frame | Mode | Round trip min / avg / max | Minus one frame's serialization |
+|---|---|---|---|
+| 78 bytes | broadcast, 10 frames | 34.2 / 37.3 / 51.4 µs (first frame) | ~27 µs |
+| 78 bytes | unicast, 100 frames | 33.0 / 35.5 / 47.2 µs | ~26-28 µs |
+| 1514 bytes | unicast, 20 frames | 195.4 / 198.3 / 210.0 µs | ~73-76 µs |
+
+The M7's handler time over all 130 frames was 3.07 / 5.68 / 19.6 µs. The remaining M7 turnaround
+is the RX interrupt, the driver thread wake-up and the RX copies. The size dependence (~48 µs extra
+at 1514 bytes) comes from copying each frame three times through non-cacheable DDR: RX ring →
+driver bounce buffer → `net_pkt` → TX ring. Stage 2 targets exactly these costs.
+
 ## On the M7
 
 ```

@@ -19,7 +19,7 @@ work out from the files: current status, decisions and the reasons for them, got
   must be `identity` (m7-vf-handoff), otherwise SMMU faults kill Linux Ethernet too.
 - **HDMI verified**: IMX-MIPI-HDMI (ADV7535) at 1920x1080@60 (PLL2410W monitor), Weston shows the
   tmux console (M7 top, Linux bottom).
-- **L2 reflector (2026-11-17, in progress):** the M7 firmware reflects EtherType 0x88B5 frames
+- **L2 reflector (2026-11-17, stage 1 working):** the M7 firmware reflects EtherType 0x88B5 frames
   (`src/reflector.c`, docs/reflector.md). The M7 MAC is now FIXED at 02:04:9f:95:00:07 (overlay
   `local-mac-address` + `VF_MAC` in m7-vf-handoff). On the board: firmware loaded by hand as
   `/tmp/m7-netipc-reflector.elf` (the autostart default `imx95-m7-zephyr.elf` is still the old
@@ -28,7 +28,9 @@ work out from the files: current status, decisions and the reasons for them, got
   trip with IEEE 1588 MAC timestamps. Mailbox: `ssh -i ~/.ssh/id_ed25519_claude_link
   wimmo@192.168.1.224`, `~/claude-link/to-224/` (we write) and `to-193/` (it writes).
   `host/l2rtt` is the Linux-PC measuring tool (hw/sw/user timestamps; needs setcap, see docs).
-- **Not yet verified:** M7 DHCP from a real LAN; uuu flashing (cable); reflector round trips.
+- **Reflector verified** with the RT1060 peer: 78-byte RTT min 33.0 / avg 35.5 us, 1514-byte 195-198 us
+  (docs/reflector.md "Measured"); 0 loss, 0 errors.
+- **Not yet verified:** M7 DHCP from a real LAN; uuu flashing (cable).
 - The eMMC holds the image with all fixes (built 2026-11-16 21:20), flashed with
   `scripts/flash-from-linux.sh`'s method and verified chunk by chunk against the .wic.
 - **Silicon = B0** (factory image: `SOC MIMX95(B0)`, U-Boot `rev2.0`, Linux soc0 revision `2.0`).
