@@ -82,12 +82,13 @@ K_THREAD_DEFINE(udp_echo_tid, 4096, udp_echo_thread, NULL, NULL, NULL, 7, 0, 100
  * Use the MAC address Linux (the PSI/PF owner) assigned to this VF.
  *
  * Linux enetc4 gives every VF an administrative MAC (`ip link show eth0`:
- * "vf 1 link/ether 00:04:9f:..") and its MAC filter only accepts that address
+ * "vf 1 link/ether 02:04:9f:95:00:07") and its MAC filter only accepts that address
  * for the VF, so the PSI rejects any other primary MAC the VSI asks for
  * ("VSI MAC filter not accepted by PSI", seen on hardware 2026-11-16) and
  * unicast frames for it never reach the M7. The assigned address is readable
- * from the VSI's own SIPMAR0/1 registers once the VF is enabled. The overlay's
- * random MAC stays as the fallback when no address was assigned.
+ * from the VSI's own SIPMAR0/1 registers once the VF is enabled. m7-vf-handoff
+ * assigns the same fixed MAC as the overlay's local-mac-address, so normally
+ * nothing changes here; this keeps the M7 working if VF_MAC is overridden.
  */
 #define VSI_NODE    DT_NODELABEL(enetc0_vsi1)
 #define VSI_BASE    DT_REG_ADDR_BY_NAME(VSI_NODE, port)

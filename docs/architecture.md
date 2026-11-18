@@ -98,8 +98,10 @@ PHY daughter-card connector) and ENETC2 (10G, AQR113C). This setup uses **ENETC0
   4. sets `ip link set <pf> vf 1 trust on`, so the PF accepts the M7's MAC/multicast filter
      requests sent over the VSI→PSI mailbox.
 - Zephyr's `nxp,imx-netc-vsi` driver on `enetc0_vsi1` waits until the PF's SR-IOV VF-enable
-  bits are set, then brings up the VSI. It sets a random `00:04:9f:xx:xx:xx` MAC through the
-  PSI and gets an address via DHCPv4. A UDP echo service listens on port 7.
+  bits are set, then brings up the VSI. It uses the fixed MAC `02:04:9f:95:00:07`, which
+  Linux also assigns to VF1 (`VF_MAC` in m7-vf-handoff), and gets an address via DHCPv4. A UDP
+  echo service listens on port 7, and an L2 reflector returns EtherType 0x88B5 frames
+  ([reflector.md](reflector.md)).
 - The ENETC hardware sends each incoming frame to the PF or the VF by destination MAC.
   Broadcast/multicast go to both. Frames between Linux and the M7 are switched internally,
   so Linux on the board can reach the M7 by its IP address.

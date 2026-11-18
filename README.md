@@ -27,8 +27,8 @@ A development environment for the **NXP i.MX95 19x19 LPDDR5 EVK** (board code
                      |
               ENETC0 port (NETC)
             /                    \
-   PSI / PF  (MAC A)        VSI / VF1 (MAC B, 00:04:9f:..)
-   Linux end0 on A55        Zephyr on M7 (DHCP, UDP echo :7)
+   PSI / PF  (MAC A)        VSI / VF1 (02:04:9f:95:00:07)
+   Linux end0 on A55        Zephyr on M7 (DHCP, UDP echo :7, L2 reflector)
         |                          |
         +------ RPMsg over MU7 + shared DDR (0x88000000) ------+
         |   /dev/ttyRPMSG0 = Zephyr shell, rpmsg-client-sample |

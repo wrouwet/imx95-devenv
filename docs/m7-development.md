@@ -94,7 +94,8 @@ A raw TTY is simpler: name the endpoint `rpmsg-tty`, and Linux's `rpmsg_tty` cre
 
 The VF is a normal Zephyr `net_if` (the default interface), so BSD sockets work (`zsock_*`, or
 POSIX names with `CONFIG_POSIX_API`). It shares the port with Linux, but it has its own MAC
-(`00:04:9f:xx:xx:xx`, random per boot) and IP. See [ethernet.md](ethernet.md) for how frames are split
+(`02:04:9f:95:00:07`, fixed) and IP. An L2 reflector for latency measurements answers
+EtherType 0x88B5 frames ([reflector.md](reflector.md)). See [ethernet.md](ethernet.md) for how frames are split
 and how to test.
 
 Random numbers come from the timer-based test generator (`CONFIG_TEST_RANDOM_GENERATOR`). The M7

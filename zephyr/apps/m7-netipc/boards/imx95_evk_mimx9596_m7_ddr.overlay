@@ -63,9 +63,10 @@
 	status = "disabled";
 };
 
-/* ENETC0 VF1: the M7's network interface on the shared RJ45 port */
+/* ENETC0 VF1: the M7's network interface on the shared RJ45 port. Fixed,
+ * locally administered MAC; Linux's m7-vf-handoff assigns the same one (VF_MAC).
+ */
 &enetc0_vsi1 {
-	zephyr,random-mac-address;
-	zephyr,mac-address-prefix = [00 04 9f];
+	local-mac-address = [02 04 9f 95 00 07];
 	status = "okay";
 };

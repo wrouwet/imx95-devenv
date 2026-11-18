@@ -6,7 +6,7 @@ work out from the files: current status, decisions and the reasons for them, got
 ## Status (keep this section current)
 
 <!-- STATUS-START -->
-- Last updated: 2026-11-16 evening by Claude (hardware bring-up session)
+- Last updated: 2026-11-17 by Claude (L2 reflector session)
 - **Board runs the image from eMMC (SW7=1010, normal boot), verified on hardware:**
   U-Boot picks `imx95-19x19-evk-devenv-adv7535.dtb`, Linux 6.18 boots with no failed units,
   serial autologin, rootfs-grow (59 GiB), key-only SSH (password refused), M7 auto-started by
@@ -19,7 +19,16 @@ work out from the files: current status, decisions and the reasons for them, got
   must be `identity` (m7-vf-handoff), otherwise SMMU faults kill Linux Ethernet too.
 - **HDMI verified**: IMX-MIPI-HDMI (ADV7535) at 1920x1080@60 (PLL2410W monitor), Weston shows the
   tmux console (M7 top, Linux bottom).
-- **Not yet verified:** M7 DHCP from a real LAN; uuu flashing (cable).
+- **L2 reflector (2026-11-17, in progress):** the M7 firmware reflects EtherType 0x88B5 frames
+  (`src/reflector.c`, docs/reflector.md). The M7 MAC is now FIXED at 02:04:9f:95:00:07 (overlay
+  `local-mac-address` + `VF_MAC` in m7-vf-handoff). On the board: firmware loaded by hand as
+  `/tmp/m7-netipc-reflector.elf` (the autostart default `imx95-m7-zephyr.elf` is still the old
+  build), and m7-vf-handoff copied to /usr/sbin. The RJ45 cable currently goes to an RT1060-EVK
+  (100 Mb/s) driven by another Claude session on 192.168.1.224 (user wimmo). It measures the round
+  trip with IEEE 1588 MAC timestamps. Mailbox: `ssh -i ~/.ssh/id_ed25519_claude_link
+  wimmo@192.168.1.224`, `~/claude-link/to-224/` (we write) and `to-193/` (it writes).
+  `host/l2rtt` is the Linux-PC measuring tool (hw/sw/user timestamps; needs setcap, see docs).
+- **Not yet verified:** M7 DHCP from a real LAN; uuu flashing (cable); reflector round trips.
 - The eMMC holds the image with all fixes (built 2026-11-16 21:20), flashed with
   `scripts/flash-from-linux.sh`'s method and verified chunk by chunk against the .wic.
 - **Silicon = B0** (factory image: `SOC MIMX95(B0)`, U-Boot `rev2.0`, Linux soc0 revision `2.0`).
@@ -175,8 +184,11 @@ The board's eMMC has the first image plus fixes copied by hand; the repo has all
    In the image built 2026-11-16 21:52 (`...rootfs-20261117034502.wic.zst`, checked). The board's
    eMMC has the 21:20 image + this one drop-in, i.e. the same content; reflash with
    `scripts/flash-from-linux.sh` whenever convenient.
-3. M7 DHCP on a real LAN (so far only link-local on a direct laptop cable).
-4. Nice to have: an `rpmsg_char` example on Linux; VLAN/PTP for the M7 VF; an iperf server on the M7;
+3. Reflector: get numbers (RT1060 peer and/or `host/l2rtt`), then stage 2 (busy-poll the VSI
+   rings without the Zephyr stack, zero-copy, buffers in OCRAM/TCM; see docs/reflector.md). Rebuild
+   the image so the fixed VF_MAC handoff and the new firmware become the defaults.
+4. M7 DHCP on a real LAN (so far only link-local on a direct laptop cable).
+5. Nice to have: an `rpmsg_char` example on Linux; VLAN/PTP for the M7 VF; an iperf server on the M7;
    a smaller terminal font on HDMI if the user wants it.
 
 ## Commands

@@ -6,7 +6,7 @@
 flowchart LR
     wire[RJ45 ENET1<br/>RTL8211 PHY] --- port[ENETC0 port<br/>MAC filter]
     port -->|"dst MAC = Linux MAC<br/>+ bcast/mcast"| psi["PSI / PF<br/>Linux eth0 (A55)"]
-    port -->|"dst MAC = 00:04:9f:..<br/>+ bcast/mcast"| vsi["VSI1 / VF1<br/>Zephyr (M7)"]
+    port -->|"dst MAC = 02:04:9f:95:00:07<br/>+ bcast/mcast"| vsi["VSI1 / VF1<br/>Zephyr (M7)"]
     vsi -. "VSI→PSI mailbox:<br/>set MAC, mcast hash" .-> psi
 ```
 
@@ -60,7 +60,7 @@ why the M7's MAC was refused ("VSI MAC filter not accepted by PSI") until this w
 ip link show eth0                    # "vf 1 ... trust on" listed under eth0
 journalctl -b -u m7-vf-handoff
 # M7 pane
-m7 status                            # carrier up, mac 00:04:9f:.., ipv4 a.b.c.d
+m7 status                            # carrier up, mac 02:04:9f:95:00:07, ipv4 a.b.c.d
 net ping <your-router>
 
 # From the board or any LAN host
@@ -69,15 +69,18 @@ echo hello | nc -u -w1 <m7-ip> 7     # UDP echo from the M7
 iperf3 -c <m7-ip>                    # (needs an iperf server on the M7; not in m7-netipc)
 
 # Watch frames on the Linux side (Linux only sees its own + bcast/mcast)
-tcpdump -i eth0 -n ether host 00:04:9f:xx:xx:xx
+tcpdump -i eth0 -n ether host 02:04:9f:95:00:07
 ```
 
 ## Tweaks
 
 - **VLAN for the M7**: `ip link set eth0 vf 1 vlan 100` makes the PF tag and untag VF traffic.
   The M7 then sits on VLAN 100 without knowing it.
-- **Fixed MAC for the M7**: replace `zephyr,random-mac-address` in the overlay with
-  `local-mac-address = [00 04 9f 12 34 56];`, so DHCP reservations are possible.
+- **The M7's MAC** is fixed at `02:04:9f:95:00:07` (locally administered). It is set in two
+  places that must agree: `local-mac-address` of `enetc0_vsi1` in the Zephyr overlay, and
+  `VF_MAC` in `m7-vf-handoff` (overridable in `/etc/default/m7-vf-handoff`), which assigns it to
+  VF1 before the M7 starts. The PF's filter only accepts the MAC Linux assigned, so a different MAC
+  on the M7 alone receives no unicast frames.
 - **Linux <-> M7 over Ethernet on the board does NOT work** (verified 2026-11-16): ENETC0 in
   standalone-port mode does not loop frames between the PF and the VF. Use RPMsg between the
   cores; over the network both are reachable from any other host.

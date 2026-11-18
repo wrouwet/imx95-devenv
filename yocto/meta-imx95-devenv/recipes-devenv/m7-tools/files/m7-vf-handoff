@@ -12,13 +12,16 @@
 # VF1 belongs to the M7) and the Zephyr overlay (enetc0_vsi1). Must run on every
 # boot; SR-IOV state doesn't survive a reset.
 #
-# Config: /etc/default/m7-vf-handoff (PF_PCI, PF_NETDEV, VF, NUMVFS)
+# Config: /etc/default/m7-vf-handoff (PF_PCI, PF_NETDEV, VF, NUMVFS, VF_MAC)
 set -eu
 
 PF_PCI=""        # e.g. 0002:00:00.0; empty = auto (ENETC0, devfn 00.0 on NETC bus 0)
 PF_NETDEV=""     # alternative to PF_PCI
 VF=1
 NUMVFS=2
+# Fixed MAC for the M7's VF (locally administered). Must match local-mac-address
+# of enetc0_vsi1 in the Zephyr overlay; peers on the link can rely on it.
+VF_MAC=02:04:9f:95:00:07
 [ -r /etc/default/m7-vf-handoff ] && . /etc/default/m7-vf-handoff
 
 log() { echo "m7-vf-handoff: $*"; }
@@ -66,6 +69,7 @@ if [ -n "$grp" ] && [ -w "$grp/type" ]; then
 fi
 setpci -s "$vf" COMMAND=0x0006               # memory space + bus master
 setpci -s "$vf" CAP_MSIX+2.w=0x8000:0x8000   # MSI-X enable
+ip link set "$netdev" vf "$VF" mac "$VF_MAC"
 ip link set "$netdev" vf "$VF" trust on
 ip link set "$netdev" up
 
