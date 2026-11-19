@@ -206,6 +206,38 @@ per-stage cost is dominated by uncached word accesses to Linux's DDR (~100–200
 Next candidates: fewer host-memory accesses per stage (cache each queue head's static fields,
 read the overlay token before the whole QH, remember how far the prefetch got), `-O2`.
 
+### Optimization round 2: M7 cost per stage (2026-11-19)
+
+1. Queue-head shadows: while an overlay is active only the controller (the M7) writes it, so a
+   local copy replaces re-reading the queue head on every poll. Dropped on every async advance
+   doorbell (the host unlinks queue heads only through it), on reset and on stop.
+2. Idle check reads only the overlay's next/alt/token (3 words) and then the next qTD's token,
+   instead of the whole queue head and qTD.
+3. Prefetch cursor: qTDs already offered (with their next pointer, length and predicted toggle)
+   are not read again on the next look-ahead.
+4. Raw physical stages without IOC: the translator polls them anyway, so the driver thread no
+   longer wakes up for every completion.
+5. `-O2` (`CONFIG_SPEED_OPTIMIZATIONS`).
+
+Same stick, 64 MiB reads, checksums identical, 0 errors (256 MiB read clean):
+
+| Step | Throughput (stick-bound) | M7 work zero-copy | Cost zero-copy | **M7-bound ideal zero-copy** | **M7-bound ideal bounce** |
+|---|---|---|---|---|---|
+| before round 1 | 14.4 MB/s | 11.6 % | 6.4 c/B | ~1.0 Gbit/s | ~0.5 Gbit/s |
+| round 1 (pipelining) | 16.2 MB/s | 18.9 % | 9.3 c/B | ~0.69 Gbit/s | ~0.42 Gbit/s |
+| + shadows, idle check, cursor, no IOC | 16.2 MB/s | 10.6 % | 5.2 c/B | ~1.22 Gbit/s | ~0.55 Gbit/s |
+| + `-O2` | 16.3 MB/s | 9.8 % | 4.8 c/B | **~1.33 Gbit/s** | **~0.66 Gbit/s** |
+
+Zero-copy now costs about 18,000 M7 cycles (~23 us) per 4 KiB stage, mostly the remaining uncached
+accesses when a stage is retired (read the next qTD, write the overlay and the token). The ideal
+assumes Linux's 4 KiB qTDs; larger ones would scale it almost linearly.
+
+**Why the queue stays in host memory.** EHCI has the host driver allocate queue heads, qTDs and the
+frame list in its own memory; an unmodified driver uses its normal DMA allocator (Linux DDR here,
+the host's RAM on PCIe). The M7 therefore caches the schedule (shadows, cursor) and only touches
+host memory when something changed. On PCIe every host-memory read costs about a microsecond, so
+this caching, plus fetching qTDs in bursts with the endpoint's DMA engine, is what will matter there.
+
 Rough projection, if the link weren't the limit (zero-copy, data never touches the M7):
 - at today's 4 KB stages: ~32,000 stages/s at 100 % M7, about 1 Gbit/s
 - with 16–20 KB stages (what one EHCI qTD can carry with page-aligned buffers): about 4–5 Gbit/s

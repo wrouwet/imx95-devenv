@@ -289,6 +289,8 @@ static void port_timers(int64_t now)
 	}
 }
 
+static void shadows_drop(void);
+
 /* --- controller --- */
 
 static void hc_reset(void)
@@ -304,6 +306,7 @@ static void hc_reset(void)
 	reg_wr(R_CONFIGFLAG, 0);
 	v.cmd = CMD_DEFAULT;
 	v.pending = 0;
+	shadows_drop();
 	v.running = false;
 	v.iaa_req = false;
 	v.frindex = 0;
@@ -324,6 +327,9 @@ static void cmd_host_write(uint32_t cmd)
 		LOG_INF("vEHCI: host controller reset");
 		hc_reset();
 		return;
+	}
+	if ((cmd ^ v.cmd) & (CMD_RUN | CMD_ASE)) {
+		shadows_drop();
 	}
 	if ((cmd ^ v.cmd) & CMD_RUN) {
 		v.running = cmd & CMD_RUN;
@@ -521,16 +527,66 @@ static enum exec_result qtd_execute(const struct hw_qh *qh, bool periodic, uint3
 	return EXEC_DONE;
 }
 
+/*
+ * Queue head shadows (async schedule). While a queue head's overlay is active,
+ * only the controller (us) writes it, so a local copy saves re-reading the
+ * queue head on every poll. The host changes an overlay only when it is idle
+ * or after unlinking the queue head, which always goes through the async
+ * advance doorbell (IAA): all shadows are dropped then, and at reset/stop.
+ * The prefetch cursor remembers which qTDs behind the active one were
+ * already offered (with their next pointers), so a look-ahead does not read
+ * them again.
+ */
+#define SHADOWS		8
+
+struct qh_shadow {
+	uint32_t addr;
+	bool valid;
+	struct hw_qh qh;
+	uint8_t pf_n;
+	uint32_t pf_id[PREFETCH_DEPTH];
+	uint32_t pf_next[PREFETCH_DEPTH];
+	uint16_t pf_len[PREFETCH_DEPTH];
+	bool pf_dt[PREFETCH_DEPTH];
+};
+
+static struct qh_shadow shadows[SHADOWS];
+static uint8_t shadow_rr;
+
+static void shadows_drop(void)
+{
+	for (int i = 0; i < SHADOWS; i++) {
+		shadows[i].valid = false;
+		shadows[i].addr = 0;
+	}
+}
+
+static struct qh_shadow *shadow_get(uint32_t addr)
+{
+	for (int i = 0; i < SHADOWS; i++) {
+		if (shadows[i].addr == addr) {
+			return &shadows[i];
+		}
+	}
+	struct qh_shadow *sh = &shadows[shadow_rr++ % SHADOWS];
+
+	sh->addr = addr;
+	sh->valid = false;
+	sh->pf_n = 0;
+	return sh;
+}
+
 /* Offer the qTDs queued behind the in-flight one (bulk only) to the device */
-static void prefetch_ahead(const struct hw_qh *qh)
+static void prefetch_ahead(const struct hw_qh *qh, struct qh_shadow *sh)
 {
 	const struct vehci_device_ops *ops;
 	void *ctx;
 	uint32_t next = qh->next;
 	uint16_t mps = QH_MPS(qh->info1) ? QH_MPS(qh->info1) : 512;
-	/* Toggle each queued stage starts with: one flip per packet before it */
-	bool dt = qh->token & TOK_DT;
-	size_t prev = TOK_BYTES(qh->token);
+	uint8_t kept = 0;
+	/* Toggle the next queued stage starts with: one flip per packet before it */
+#define PACKETS_ODD(len) (((len) ? DIV_ROUND_UP((len), mps) : 1) & 1)
+	bool dt = (qh->token & TOK_DT) ^ PACKETS_ODD(TOK_BYTES(qh->token));
 
 	if ((qh->info1 & QH_C) || QH_EP(qh->info1) == 0 ||
 	    !vehci_hub_route(QH_ADDR(qh->info1), &ops, &ctx) || !ops->prefetch) {
@@ -538,15 +594,36 @@ static void prefetch_ahead(const struct hw_qh *qh)
 	}
 	for (int n = 0; n < PREFETCH_DEPTH && !(next & LINK_T); n++) {
 		struct hw_qtd qtd;
+		uint32_t id = LINK_ADDR(next);
+		int c = sh ? sh->pf_n : 0;
 
-		if (host_rd(LINK_ADDR(next), &qtd, sizeof(qtd)) || !(qtd.token & TOK_ACTIVE)) {
-			return;
+		/* Already offered with a known successor: no need to read it again */
+		for (int i = 0; sh && i < sh->pf_n; i++) {
+			if (sh->pf_id[i] == id && !(sh->pf_next[i] & LINK_T)) {
+				c = i;
+				break;
+			}
 		}
-		dt ^= ((prev ? DIV_ROUND_UP(prev, mps) : 1) & 1);
-		prev = TOK_BYTES(qtd.token);
+		if (sh && c < sh->pf_n) {
+			uint32_t nx = sh->pf_next[c];
+			uint16_t len = sh->pf_len[c];
+
+			sh->pf_id[kept] = id;
+			sh->pf_next[kept] = nx;
+			sh->pf_len[kept] = len;
+			sh->pf_dt[kept] = dt;
+			kept++;
+			dt ^= PACKETS_ODD(len);
+			next = nx;
+			continue;
+		}
+
+		if (host_rd(id, &qtd, sizeof(qtd)) || !(qtd.token & TOK_ACTIVE)) {
+			break;
+		}
 
 		struct vehci_xfer x = {
-			.id = LINK_ADDR(next),
+			.id = id,
 			.addr = QH_ADDR(qh->info1),
 			.ep = QH_EP(qh->info1),
 			.pid = TOK_PID(qtd.token),
@@ -560,44 +637,77 @@ static void prefetch_ahead(const struct hw_qh *qh)
 
 		memcpy(x.bufp, qtd.buf, sizeof(x.bufp));
 		if (ops->prefetch(ctx, &x)) {
-			return;
+			break;
 		}
+		if (sh && kept < PREFETCH_DEPTH) {
+			sh->pf_id[kept] = id;
+			sh->pf_next[kept] = qtd.next;
+			sh->pf_len[kept] = x.len;
+			sh->pf_dt[kept] = dt;
+			kept++;
+		}
+		dt ^= PACKETS_ODD(x.len);
 		next = qtd.next;
+	}
+#undef PACKETS_ODD
+	if (sh) {
+		sh->pf_n = kept;
 	}
 }
 
 static void qh_process(uint32_t addr, bool periodic)
 {
+	struct qh_shadow *sh = periodic ? NULL : shadow_get(addr);
 	struct hw_qh qh;
-
-	if (host_rd(addr, &qh, sizeof(qh))) {
-		v.pending |= STS_FATAL;
-		return;
-	}
-
 	/* Look ahead only when something changed here (stage loaded or retired), not every poll */
 	bool changed = false;
+
+	if (sh && sh->valid && (sh->qh.token & TOK_ACTIVE)) {
+		qh = sh->qh;	/* active overlay: only we write it */
+	} else {
+		/* Idle check first: overlay next/alt/token, then the next qTD's token */
+		uint32_t ov[3];
+		uint32_t qtok;
+
+		if (host_rd(addr + offsetof(struct hw_qh, next), ov, sizeof(ov))) {
+			v.pending |= STS_FATAL;
+			return;
+		}
+		if ((ov[2] & TOK_HALTED) || (!(ov[2] & TOK_ACTIVE) &&
+		    ((ov[0] & LINK_T) ||
+		     host_rd(LINK_ADDR(ov[0]) + offsetof(struct hw_qtd, token), &qtok,
+			     sizeof(qtok)) || !(qtok & TOK_ACTIVE)))) {
+			if (sh) {
+				sh->valid = false;
+			}
+			return;	/* halted or nothing queued */
+		}
+		if (host_rd(addr, &qh, sizeof(qh))) {
+			v.pending |= STS_FATAL;
+			return;
+		}
+	}
 
 	for (int n = 0; n < MAX_QTD_PER_QH; n++) {
 		uint32_t tok;
 		bool short_pkt;
 
 		if (qh.token & TOK_HALTED) {
-			return;
+			break;
 		}
 		if (!(qh.token & TOK_ACTIVE)) {
 			struct hw_qtd qtd;
 			uint32_t dt;
 
 			if (qh.next & LINK_T) {
-				return;
+				break;
 			}
 			if (host_rd(LINK_ADDR(qh.next), &qtd, sizeof(qtd))) {
 				v.pending |= STS_FATAL;
-				return;
+				break;
 			}
 			if (!(qtd.token & TOK_ACTIVE)) {
-				return;
+				break;
 			}
 			/* Load the overlay (EHCI 4.10.2); the toggle comes from the qTD if DTC */
 			dt = (qh.info1 & QH_DTC) ? (qtd.token & TOK_DT) : (qh.token & TOK_DT);
@@ -616,10 +726,10 @@ static void qh_process(uint32_t addr, bool periodic)
 			if (!periodic) {
 				v.active = true;	/* a pending async stage: poll fast */
 				if (changed) {
-					prefetch_ahead(&qh);
+					prefetch_ahead(&qh, sh);
 				}
 			}
-			return;
+			break;
 		}
 
 		/* Retire: token to the qTD and the overlay; short IN packet follows alt */
@@ -634,12 +744,17 @@ static void qh_process(uint32_t addr, bool periodic)
 		if (tok & TOK_HALTED) {
 			v.pending |= STS_ERR;
 			v.st.errors++;
-			return;
+			break;
 		}
 		if ((tok & TOK_IOC) || short_pkt) {
 			v.pending |= STS_INT;
 		}
 		changed = true;
+	}
+
+	if (sh) {
+		sh->qh = qh;
+		sh->valid = true;
 	}
 }
 
@@ -735,6 +850,7 @@ static void poll_once(void)
 	}
 	if (v.iaa_req) {
 		/* A full async pass happened since the doorbell: nothing cached */
+		shadows_drop();
 		v.iaa_req = false;
 		v.cmd &= ~CMD_IAAD;
 		reg_wr(R_CMD, v.cmd);

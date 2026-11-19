@@ -72,6 +72,8 @@ int ci_ehci_raw_submit(const struct device *dev, struct ci_ehci_raw_xfer *x);
  * completed (its done callback ran). For callers that poll anyway.
  */
 bool ci_ehci_raw_poll(const struct device *dev, struct ci_ehci_raw_xfer *x);
+/* Raw stages raise no completion interrupt: callers poll; the driver thread
+ * only notices completions on its periodic scan (100 ms). */
 
 /* Take a stage back; its done callback is not called */
 int ci_ehci_raw_cancel(const struct device *dev, struct ci_ehci_raw_xfer *x);

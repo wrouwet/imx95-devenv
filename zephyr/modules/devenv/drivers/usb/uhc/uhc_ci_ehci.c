@@ -982,7 +982,8 @@ int ci_ehci_raw_submit(const struct device *dev, struct ci_ehci_raw_xfer *x)
 		 bus_addr(p, &p->pool->qtd[ep->stop]) : LINK_T;
 	q->next = bus_addr(p, &p->pool->qtd[nd]);
 	barrier_dmem_fence_full();
-	q->token = QTD_BYTES(x->len) | QTD_IOC | QTD_CERR(3) | ((uint32_t)x->pid << 8) |
+	/* No IOC: the caller polls (ci_ehci_raw_poll); the driver thread's periodic scan backs it up */
+	q->token = QTD_BYTES(x->len) | QTD_CERR(3) | ((uint32_t)x->pid << 8) |
 		   (x->dt ? QTD_DT : 0) | QTD_STS_ACTIVE;
 	barrier_dsync_fence_full();
 
