@@ -41,6 +41,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/util.h>
+#include <zephyr/timing/timing.h>
 
 #include "vehci_internal.h"
 
@@ -512,6 +513,7 @@ static enum exec_result qtd_execute(const struct hw_qh *qh, bool periodic, uint3
 	}
 	*tok = (t & ~(TOK_ACTIVE | TOK_BYTES_MASK)) | ((uint32_t)(x.len - x.actual) << 16);
 	v.st.qtds++;
+	v.st.bytes += x.actual;
 	return EXEC_DONE;
 }
 
@@ -642,6 +644,8 @@ static void periodic_pass(void)
 static void poll_once(void)
 {
 	uint32_t val;
+	uint32_t qtds = v.st.qtds;
+	timing_t t0 = timing_counter_get(), t1;
 
 	v.st.polls++;
 
@@ -677,6 +681,15 @@ static void poll_once(void)
 
 	sts_publish();
 	irq_update();
+
+	t1 = timing_counter_get();
+	uint64_t cyc = timing_cycles_get(&t0, &t1);
+
+	v.st.poll_cycles += cyc;
+	if (v.st.qtds != qtds) {
+		v.st.work_cycles += cyc;
+		v.st.work_polls++;
+	}
 }
 
 static void vehci_thread(void *a, void *b, void *c)
@@ -698,6 +711,8 @@ int vehci_start(const struct vehci_transport *t)
 
 	v.t = *t;
 	k_mutex_init(&v.lock);
+	timing_init();
+	timing_start();
 
 	reg_wr(CAP_LENGTH_VERSION, (0x0100U << 16) | VEHCI_CAPLENGTH);	/* EHCI 1.00 */
 	reg_wr(CAP_HCSPARAMS, 1);	/* one port, no port power control */

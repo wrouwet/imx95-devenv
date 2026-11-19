@@ -125,6 +125,83 @@ static int cmd_status(const struct shell *sh, size_t argc, char **argv)
 	return 0;
 }
 
+struct thread_find {
+	const char *name;
+	k_tid_t tid;
+};
+
+static void thread_find_cb(const struct k_thread *t, void *user)
+{
+	struct thread_find *f = user;
+	const char *n = k_thread_name_get((k_tid_t)t);
+
+	if (n && strcmp(n, f->name) == 0) {
+		f->tid = (k_tid_t)t;
+	}
+}
+
+static uint64_t thread_cycles(const char *name)
+{
+	struct thread_find f = {.name = name};
+	k_thread_runtime_stats_t rs;
+
+	k_thread_foreach(thread_find_cb, &f);
+	if (!f.tid || k_thread_runtime_stats_get(f.tid, &rs)) {
+		return 0;
+	}
+	return rs.execution_cycles;
+}
+
+/*
+ * M7 load while the host moves data: the vEHCI thread polls all the time (lowest priority),
+ * so its raw CPU share is meaningless; count the cycles of polls that retired a stage,
+ * plus the USB2 driver thread (completions, physical scheduling).
+ */
+static int cmd_perf(const struct shell *sh, size_t argc, char **argv)
+{
+	uint32_t secs = argc > 1 ? strtoul(argv[1], NULL, 0) : 5;
+	const char *drv = DEVICE_DT_GET(DT_NODELABEL(usb2))->name;
+	struct vehci_stats a, b;
+	uint64_t d0, d1, t0, t1, hz = sys_clock_hw_cycles_per_sec();
+	k_thread_runtime_stats_t all0, all1;
+
+	vehci_get_stats(&a);
+	d0 = thread_cycles(drv);
+	k_thread_runtime_stats_all_get(&all0);
+	t0 = k_cycle_get_64();
+	k_sleep(K_SECONDS(secs));
+	t1 = k_cycle_get_64();
+	k_thread_runtime_stats_all_get(&all1);
+	d1 = thread_cycles(drv);
+	vehci_get_stats(&b);
+
+	uint64_t el = t1 - t0;	/* system cycles */
+	uint64_t bytes = b.bytes - a.bytes;
+	uint64_t work = b.work_cycles - a.work_cycles;	/* CPU (DWT) cycles */
+	uint64_t poll = b.poll_cycles - a.poll_cycles;
+	uint64_t drvc = d1 - d0;
+	uint64_t cpu_hz = 800000000ULL;	/* Cortex-M7 core clock */
+	uint64_t cpu_el = el * (cpu_hz / hz);
+	uint64_t load = work + drvc;
+
+	shell_print(sh, "%u s: %llu bytes (%llu KB/s), %u stages, %u work polls of %u polls", secs,
+		    bytes, bytes / secs / 1000, b.qtds - a.qtds, b.work_polls - a.work_polls,
+		    b.polls - a.polls);
+	shell_print(sh, "M7 work: vEHCI %llu.%02llu %%, USB2 driver thread %llu.%02llu %% of the core",
+		    work * 100 / cpu_el, work * 10000 / cpu_el % 100, drvc * 100 / cpu_el,
+		    drvc * 10000 / cpu_el % 100);
+	shell_print(sh, "vEHCI polling (incl. idle) %llu %% of the core", poll * 100 / cpu_el);
+	if (bytes) {
+		uint64_t cpb100 = load * 100 / bytes;	/* cycles per byte x100 */
+
+		shell_print(sh, "cost %llu.%02llu cycles/byte -> data rate at 100 %% M7 work: %llu Mbit/s",
+			    cpb100 / 100, cpb100 % 100, cpu_hz * 8 * 100 / cpb100 / 1000000);
+	}
+	ARG_UNUSED(all0);
+	ARG_UNUSED(all1);
+	return 0;
+}
+
 #if defined(CONFIG_APP_VEHCI_XLAT)
 static int cmd_bounce(const struct shell *sh, size_t argc, char **argv)
 {
@@ -151,6 +228,7 @@ SHELL_STATIC_SUBCMD_SET_CREATE(vehci_cmds,
 	SHELL_CMD(status, NULL, "registers, port and counters", cmd_status),
 	SHELL_CMD(plug, NULL, "attach the test device to the root port", cmd_plug),
 	SHELL_CMD(unplug, NULL, "detach it", cmd_unplug),
+	SHELL_CMD_ARG(perf, NULL, "[seconds] throughput and M7 load", cmd_perf, 1, 1),
 #if defined(CONFIG_APP_VEHCI_XLAT)
 	SHELL_CMD_ARG(bounce, NULL, "[on|off] translator data path (default zero-copy)", cmd_bounce,
 		      1, 1),

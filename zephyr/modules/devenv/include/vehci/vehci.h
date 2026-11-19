@@ -114,6 +114,11 @@ struct vehci_stats {
 	uint32_t qtds;
 	uint32_t naks;
 	uint32_t errors;
+	/* load measurement (M7 cycle counter) */
+	uint64_t bytes;		/* data moved by retired stages */
+	uint64_t poll_cycles;	/* all polls */
+	uint64_t work_cycles;	/* polls that retired at least one stage */
+	uint32_t work_polls;
 };
 
 void vehci_get_stats(struct vehci_stats *s);

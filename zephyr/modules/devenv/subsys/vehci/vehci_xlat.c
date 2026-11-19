@@ -57,6 +57,8 @@ struct inflight {
 	uint16_t key;
 	uint32_t id;
 	int64_t last_seen;
+	int64_t submitted;
+	bool warned;
 	int bounce;			/* slot or -1 */
 	struct vehci_xfer x;		/* the host's stage, as first seen */
 	struct ci_ehci_raw_xfer raw;
@@ -83,7 +85,8 @@ static struct {
 	struct vehci_xlat_stats st;
 } xl;
 
-static uint8_t __aligned(CONFIG_DCACHE_LINE_SIZE) bounce_buf[BOUNCE_SLOTS][BOUNCE_SIZE];
+/* Page aligned: a qTD's five page pointers cover 20 KiB only from a page start */
+static uint8_t __aligned(4096) bounce_buf[BOUNCE_SLOTS][BOUNCE_SIZE];
 
 /* --- key decoding for the snoop --- */
 
@@ -338,6 +341,13 @@ static int xlat_transfer(void *ctx, struct vehci_xfer *x)
 	if (f) {
 		f->last_seen = now;
 		if (f->state == PENDING) {
+			if (!f->warned && now - f->submitted > 5000) {
+				f->warned = true;
+				LOG_WRN("xlat: stage pending %lld ms: addr %u ep %u %s len %u dt %u %s",
+					now - f->submitted, x->addr, x->ep,
+					x->pid == VEHCI_PID_IN ? "IN" : x->pid == VEHCI_PID_OUT ? "OUT" : "SETUP",
+					(unsigned int)x->len, x->dt, f->bounce >= 0 ? "bounce" : "zero-copy");
+			}
 			return -EAGAIN;
 		}
 		/* DONE: hand the result to the host */
@@ -373,6 +383,8 @@ static int xlat_transfer(void *ctx, struct vehci_xfer *x)
 	f->key = key;
 	f->id = x->id;
 	f->last_seen = now;
+	f->submitted = now;
+	f->warned = false;
 	f->x = *x;
 	ret = stage_buffers(f, x);
 	if (ret) {
