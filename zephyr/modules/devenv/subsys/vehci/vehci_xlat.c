@@ -18,6 +18,11 @@
  *    the root port (hub 0, port 1). TTs of real high-speed hubs pass through.
  *  - Data: zero-copy by default (the physical controller DMAs straight into
  *    the host's buffers, vehci_dma_addr), or bounced through M7 memory.
+ *  - Pipelining: while a bulk stage is in flight, the stages the host already
+ *    queued behind it are submitted too (vEHCI prefetch, up to
+ *    CI_EHCI_RAW_DEPTH per endpoint), so the physical bus keeps streaming.
+ *    Stages the controller did not run (behind a short packet) are simply
+ *    submitted again when their turn comes.
  *  - A stage the host stops asking for (URB unlinked) is cancelled.
  *
  * Snooping, for the console: SET_ADDRESS, device VID:PID, SET_CONFIGURATION,
@@ -45,8 +50,8 @@
 
 LOG_MODULE_REGISTER(vehci_xlat, CONFIG_VEHCI_LOG_LEVEL);
 
-#define MAX_INFLIGHT	16
-#define BOUNCE_SLOTS	4
+#define MAX_INFLIGHT	32
+#define BOUNCE_SLOTS	8
 #define BOUNCE_SIZE	20480		/* what one qTD can describe */
 #define STALE_MS	500		/* host stopped asking: cancel */
 #define MAX_ADDR	128
@@ -322,93 +327,47 @@ static int stage_buffers(struct inflight *f, const struct vehci_xfer *x)
 	return 0;
 }
 
-static int xlat_transfer(void *ctx, struct vehci_xfer *x)
+static struct inflight *find_stage(uint16_t key, uint32_t id, int *count)
 {
-	int64_t now = k_uptime_get();
-	uint16_t key = stage_key(x);
-	struct inflight *f = NULL, *spare = NULL;
-	int ret;
+	struct inflight *f = NULL;
 
-	inflight_gc(now);
+	*count = 0;
 	for (int i = 0; i < MAX_INFLIGHT; i++) {
 		struct inflight *e = &xl.in[i];
 
-		if (e->state == FREE) {
-			spare = spare ? spare : e;
-		} else if (e->key == key) {
-			f = e;
-		}
-	}
-
-	if (f && f->id != x->id) {
-		/* the host moved on (unlinked or requeued): drop the old stage */
-		inflight_free(f);
-		spare = spare ? spare : f;
-		f = NULL;
-	}
-
-	if (f) {
-		f->last_seen = now;
-		if (f->state == PENDING) {
-			/* look at the physical qTD directly rather than wait for its interrupt */
-			ci_ehci_raw_poll(xl.uhc, &f->raw);
-		}
-		if (f->state == PENDING) {
-			if (!f->warned && now - f->submitted > 5000) {
-				f->warned = true;
-				LOG_WRN("xlat: stage pending %lld ms: addr %u ep %u %s len %u dt %u %s",
-					now - f->submitted, x->addr, x->ep,
-					x->pid == VEHCI_PID_IN ? "IN" : x->pid == VEHCI_PID_OUT ? "OUT" : "SETUP",
-					(unsigned int)x->len, x->dt, f->bounce >= 0 ? "bounce" : "zero-copy");
-			}
-			return -EAGAIN;
-		}
-		/* DONE: hand the result to the host */
-		int status = f->raw.status;
-		timing_t now_t = timing_counter_get();
-
-		xl.st.timed++;
-		xl.st.hw_cycles += timing_cycles_get(&f->t_sub, &f->t_done);
-		xl.st.notice_cycles += timing_cycles_get(&f->t_done, &now_t);
-		for (int i = 0; i < MAX_INFLIGHT; i++) {
-			if (xl.last_back[i].key == key || i == MAX_INFLIGHT - 1) {
-				xl.last_back[i].key = key;
-				xl.last_back[i].t = now_t;
-				break;
-			}
-			if (xl.last_back[i].key == 0) {
-				xl.last_back[i].key = key;
-				xl.last_back[i].t = now_t;
-				break;
+		if (e->state != FREE && e->key == key) {
+			(*count)++;
+			if (e->id == id) {
+				f = e;
 			}
 		}
-
-		x->actual = f->raw.actual;
-		if (!status && f->bounce >= 0 && x->pid == VEHCI_PID_IN && x->actual) {
-			sys_cache_data_invd_range(bounce_buf[f->bounce], x->actual);
-			if (vehci_xfer_write(x, 0, bounce_buf[f->bounce], x->actual)) {
-				status = -EIO;
-			}
-		}
-		inflight_free(f);
-		snoop_stage(x, status);
-		xl.st.stages++;
-		if (status == -EPIPE) {
-			xl.st.stalls++;
-			return -EPIPE;
-		}
-		if (status) {
-			xl.st.errors++;
-			return -EIO;
-		}
-		return 0;
 	}
+	return f;
+}
 
-	/* New stage: build the physical one */
-	if (!spare || !xl.attached) {
-		return xl.attached ? -EAGAIN : -EIO;
+static void drop_key(uint16_t key)
+{
+	for (int i = 0; i < MAX_INFLIGHT; i++) {
+		if (xl.in[i].state != FREE && xl.in[i].key == key) {
+			inflight_free(&xl.in[i]);
+		}
 	}
-	f = spare;
+}
+
+/* Build and queue the physical stage; 0, -EAGAIN (no room now) or -EIO */
+static int submit_stage(const struct vehci_xfer *x, uint16_t key, int64_t now)
+{
+	struct inflight *f = NULL;
+	int ret;
+
+	for (int i = 0; i < MAX_INFLIGHT && !f; i++) {
+		if (xl.in[i].state == FREE) {
+			f = &xl.in[i];
+		}
+	}
+	if (!f) {
+		return -EAGAIN;
+	}
 	memset(&f->raw, 0, sizeof(f->raw));
 	f->key = key;
 	f->id = x->id;
@@ -460,7 +419,110 @@ static int xlat_transfer(void *ctx, struct vehci_xfer *x)
 		}
 		return (ret == -EBUSY || ret == -ENOMEM) ? -EAGAIN : -EIO;
 	}
-	return -EAGAIN;
+	return 0;
+}
+
+static int xlat_transfer(void *ctx, struct vehci_xfer *x)
+{
+	int64_t now = k_uptime_get();
+	uint16_t key = stage_key(x);
+	struct inflight *f;
+	int count, ret;
+
+	inflight_gc(now);
+	f = find_stage(key, x->id, &count);
+
+	if (f && f->state == DONE && f->raw.status == -ECONNRESET) {
+		/* the controller did not run it (behind a short packet): submit again */
+		inflight_free(f);
+		f = NULL;
+		count--;
+	}
+	if (!f && count) {
+		/* the host moved on (unlinked or requeued): what we had is stale */
+		drop_key(key);
+	}
+
+	if (f) {
+		f->last_seen = now;
+		if (f->state == PENDING) {
+			/* look at the physical qTD directly rather than wait for its interrupt */
+			ci_ehci_raw_poll(xl.uhc, &f->raw);
+		}
+		if (f->state == PENDING) {
+			if (!f->warned && now - f->submitted > 5000) {
+				f->warned = true;
+				LOG_WRN("xlat: stage pending %lld ms: addr %u ep %u %s len %u dt %u %s",
+					now - f->submitted, x->addr, x->ep,
+					x->pid == VEHCI_PID_IN ? "IN" : x->pid == VEHCI_PID_OUT ? "OUT" : "SETUP",
+					(unsigned int)x->len, x->dt, f->bounce >= 0 ? "bounce" : "zero-copy");
+			}
+			return -EAGAIN;
+		}
+		/* DONE: hand the result to the host */
+		int status = f->raw.status;
+		timing_t now_t = timing_counter_get();
+
+		xl.st.timed++;
+		xl.st.hw_cycles += timing_cycles_get(&f->t_sub, &f->t_done);
+		xl.st.notice_cycles += timing_cycles_get(&f->t_done, &now_t);
+		for (int i = 0; i < MAX_INFLIGHT; i++) {
+			if (xl.last_back[i].key == key || xl.last_back[i].key == 0 ||
+			    i == MAX_INFLIGHT - 1) {
+				xl.last_back[i].key = key;
+				xl.last_back[i].t = now_t;
+				break;
+			}
+		}
+		x->actual = f->raw.actual;
+		if (!status && f->bounce >= 0 && x->pid == VEHCI_PID_IN && x->actual) {
+			sys_cache_data_invd_range(bounce_buf[f->bounce], x->actual);
+			if (vehci_xfer_write(x, 0, bounce_buf[f->bounce], x->actual)) {
+				status = -EIO;
+			}
+		}
+		inflight_free(f);
+		snoop_stage(x, status);
+		xl.st.stages++;
+		if (status == -EPIPE) {
+			xl.st.stalls++;
+			return -EPIPE;
+		}
+		if (status) {
+			xl.st.errors++;
+			return -EIO;
+		}
+		return 0;
+	}
+
+	/* New stage */
+	if (!xl.attached) {
+		return -EIO;
+	}
+	ret = submit_stage(x, key, now);
+	return ret == -EIO ? -EIO : -EAGAIN;
+}
+
+static int xlat_prefetch(void *ctx, struct vehci_xfer *x)
+{
+	int64_t now = k_uptime_get();
+	uint16_t key = stage_key(x);
+	struct inflight *f;
+	int count;
+
+	if (!xl.attached) {
+		return -ENODEV;
+	}
+	f = find_stage(key, x->id, &count);
+	if (f) {
+		f->last_seen = now;
+		return 0;	/* already queued: look further */
+	}
+	if (count >= CI_EHCI_RAW_DEPTH || submit_stage(x, key, now)) {
+		return -ENOSPC;
+	}
+	xl.st.prefetched++;
+	return 0;
 }
 
 static void cancel_all(void)
@@ -505,6 +567,7 @@ static const struct vehci_device_ops xlat_ops = {
 	.transfer = xlat_transfer,
 	.reset = xlat_reset,
 	.reset_busy = xlat_reset_busy,
+	.prefetch = xlat_prefetch,
 	/* no .address: the host's addresses pass through, everything but the hub's is ours */
 };
 

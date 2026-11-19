@@ -119,8 +119,8 @@ static int cmd_status(const struct shell *sh, size_t argc, char **argv)
 
 	vehci_xlat_get_stats(&x);
 	shell_print(sh, "translator (%s): stages %u (zero-copy %u, bounced %u), stalls %u, errors %u, "
-		    "cancelled %u, port resets %u", vehci_xlat_bounce() ? "bounce" : "zero-copy",
-		    x.stages, x.zero_copy, x.bounced, x.stalls, x.errors, x.cancelled, x.resets);
+		    "cancelled %u, port resets %u, prefetched %u", vehci_xlat_bounce() ? "bounce" : "zero-copy",
+		    x.stages, x.zero_copy, x.bounced, x.stalls, x.errors, x.cancelled, x.resets, x.prefetched);
 	if (x.timed) {
 		/* 800 cycles per microsecond */
 		shell_print(sh, "per stage (avg over %u): physical %llu us, completion -> host %llu us, "

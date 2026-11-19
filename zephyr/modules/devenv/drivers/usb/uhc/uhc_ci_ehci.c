@@ -21,8 +21,11 @@
  * Besides the UHC API there is a raw interface (devenv/ci_ehci_raw.h) for the
  * virtual EHCI translator: one stage as an EHCI qTD describes it (address,
  * endpoint, PID, speed, TT routing, toggle, buffer page list) becomes one
- * physical qTD on a queue head per (address, endpoint, direction). The toggle
- * always comes from the qTD (DTC=1), so the caller's toggle state rules.
+ * physical qTD on a queue head per (address, endpoint, direction). Bulk and
+ * interrupt queue heads hold several stages (pipelined, appended through a
+ * dummy tail qTD as Linux's EHCI driver does); the controller keeps their data
+ * toggle, synced from the caller's whenever the queue was empty. A short IN
+ * packet jumps to a stop qTD, so nothing behind it runs.
  *
  * Copyright (c) 2026, imx95-devenv contributors
  * SPDX-License-Identifier: Apache-2.0
@@ -196,7 +199,10 @@ struct ehci_ep {
 	/* raw interface */
 	bool is_raw;
 	uint16_t raw_key;
-	struct ci_ehci_raw_xfer *raw;
+	struct ci_ehci_raw_xfer *rawq[CI_EHCI_RAW_DEPTH];	/* queued, oldest first */
+	uint8_t rawn;
+	int16_t dummy;		/* inactive tail qTD the next stage goes into */
+	int16_t stop;		/* inactive qTD a short IN packet jumps to */
 };
 
 struct ehci_config {
@@ -460,13 +466,18 @@ static struct ehci_ep *ep_find(struct ehci_priv *p, struct uhc_transfer *xfer)
 
 static bool ep_idle(struct ehci_ep *ep)
 {
-	return ep->active == NULL && ep->raw == NULL && sys_dlist_is_empty(&ep->queue);
+	return ep->active == NULL && ep->rawn == 0 && sys_dlist_is_empty(&ep->queue);
 }
+
+static void raw_free_all(struct ehci_priv *p, struct ehci_ep *ep);
 
 static void ep_release(struct ehci_priv *p, struct ehci_ep *ep)
 {
 	ep_unlink(p, ep);
 	ep_free_qtds(p, ep);
+	if (ep->is_raw) {
+		raw_free_all(p, ep);
+	}
 	ep->used = false;
 }
 
@@ -506,7 +517,7 @@ static struct ehci_ep *ep_get(struct ehci_priv *p, struct uhc_transfer *xfer)
 	ep->reset_toggle = false;
 	ep->active = NULL;
 	ep->is_raw = false;
-	ep->raw = NULL;
+	ep->rawn = 0;
 	ep->nqtd = 0;
 	sys_dlist_init(&ep->queue);
 	ep->qh->link = LINK_T;
@@ -752,12 +763,24 @@ static int port_reset(struct ehci_priv *p, enum usb_device_speed *speed);
 
 /* --- raw interface (virtual EHCI translator) --- */
 
-static void raw_finish(struct ehci_priv *p, struct ehci_ep *ep, int status, size_t actual, bool dt)
+static void raw_qtd_idle(struct ehci_priv *p, int i)
 {
-	struct ci_ehci_raw_xfer *x = ep->raw;
+	struct ehci_qtd *q = &p->pool->qtd[i];
 
-	ep_free_qtds(p, ep);
-	ep->raw = NULL;
+	q->next = LINK_T;
+	q->alt = LINK_T;
+	q->token = 0;
+}
+
+/* Complete the oldest queued stage */
+static void raw_complete(struct ehci_priv *p, struct ehci_ep *ep, int status, size_t actual,
+			 bool dt)
+{
+	struct ci_ehci_raw_xfer *x = ep->rawq[0];
+
+	qtd_free(p, x->qtd);
+	memmove(&ep->rawq[0], &ep->rawq[1], (ep->rawn - 1) * sizeof(ep->rawq[0]));
+	ep->rawn--;
 	x->priv = NULL;
 	x->status = status;
 	x->actual = actual;
@@ -767,20 +790,63 @@ static void raw_finish(struct ehci_priv *p, struct ehci_ep *ep, int status, size
 	}
 }
 
+/*
+ * Drop every queued stage (they did not run) and restart the chain at the
+ * dummy. Only while the controller leaves the queue head alone: halted, idle
+ * at the stop qTD, or unlinked.
+ */
+static void raw_reset_chain(struct ehci_priv *p, struct ehci_ep *ep, int status)
+{
+	while (ep->rawn) {
+		raw_complete(p, ep, status, 0, false);
+	}
+	raw_qtd_idle(p, ep->dummy);
+	ep->qh->token = 0;	/* clears a halt; the toggle is synced on the next submit */
+	ep->qh->alt = LINK_T;
+	barrier_dmem_fence_full();
+	ep->qh->next = bus_addr(p, &p->pool->qtd[ep->dummy]);
+	barrier_dsync_fence_full();
+}
+
+static void raw_free_all(struct ehci_priv *p, struct ehci_ep *ep)
+{
+	while (ep->rawn) {
+		raw_complete(p, ep, -ENODEV, 0, false);
+	}
+	if (ep->dummy >= 0) {
+		qtd_free(p, ep->dummy);
+	}
+	if (ep->stop >= 0) {
+		qtd_free(p, ep->stop);
+	}
+	ep->dummy = ep->stop = -1;
+	ep->is_raw = false;
+}
+
 static void raw_check(struct ehci_priv *p, struct ehci_ep *ep)
 {
-	struct ci_ehci_raw_xfer *x = ep->raw;
-	uint32_t tok = p->pool->qtd[ep->qtds[0]].token;
-	int status = 0;
+	while (ep->rawn) {
+		struct ci_ehci_raw_xfer *x = ep->rawq[0];
+		uint32_t tok = p->pool->qtd[x->qtd].token;
+		size_t actual = x->len - QTD_GET_BYTES(tok);
+		bool short_in;
 
-	if (tok & QTD_STS_HALTED) {
-		status = qtd_error(tok);
-		ep->qh->next = LINK_T;	/* clear the halted overlay */
-		ep->qh->token = 0;
-	} else if (tok & QTD_STS_ACTIVE) {
-		return;
+		if (tok & QTD_STS_HALTED) {
+			raw_complete(p, ep, qtd_error(tok), actual, tok & QTD_DT);
+			raw_reset_chain(p, ep, -ECONNRESET);
+			return;
+		}
+		if (tok & QTD_STS_ACTIVE) {
+			return;
+		}
+		short_in = !x->control && x->pid == CI_EHCI_RAW_PID_IN && actual < x->len;
+		raw_complete(p, ep, 0, actual, tok & QTD_DT);
+		if (short_in) {
+			/* the controller went to the stop qTD: restart the chain */
+			raw_reset_chain(p, ep, -ECONNRESET);
+			return;
+		}
 	}
-	raw_finish(p, ep, status, x->len - QTD_GET_BYTES(tok), tok & QTD_DT);
 }
 
 static uint16_t raw_key(const struct ci_ehci_raw_xfer *x)
@@ -795,6 +861,7 @@ static struct ehci_ep *raw_ep_get(struct ehci_priv *p, const struct ci_ehci_raw_
 {
 	uint16_t key = raw_key(x);
 	struct ehci_ep *spare = NULL;
+	int d, st;
 
 	for (int i = 0; i < EHCI_NUM_EP; i++) {
 		if (p->eps[i].used && p->eps[i].is_raw && p->eps[i].raw_key == key) {
@@ -815,6 +882,14 @@ static struct ehci_ep *raw_ep_get(struct ehci_priv *p, const struct ci_ehci_raw_
 	if (!spare) {
 		return NULL;
 	}
+	d = qtd_alloc(p);
+	st = d >= 0 ? qtd_alloc(p) : -1;
+	if (st < 0) {
+		if (d >= 0) {
+			qtd_free(p, d);
+		}
+		return NULL;
+	}
 	memset((void *)spare->qh, 0, sizeof(*spare->qh));
 	spare->used = true;
 	spare->linked = false;
@@ -827,11 +902,15 @@ static struct ehci_ep *raw_ep_get(struct ehci_priv *p, const struct ci_ehci_raw_
 	spare->nqtd = 0;
 	spare->is_raw = true;
 	spare->raw_key = key;
-	spare->raw = NULL;
+	spare->rawn = 0;
+	spare->dummy = d;
+	spare->stop = st;
+	raw_qtd_idle(p, d);
+	raw_qtd_idle(p, st);
 	sys_dlist_init(&spare->queue);
 	spare->qh->link = LINK_T;
-	spare->qh->next = LINK_T;
 	spare->qh->alt = LINK_T;
+	spare->qh->next = bus_addr(p, &p->pool->qtd[d]);
 	return spare;
 }
 
@@ -839,9 +918,9 @@ int ci_ehci_raw_submit(const struct device *dev, struct ci_ehci_raw_xfer *x)
 {
 	struct ehci_priv *p = uhc_get_private(dev);
 	struct ehci_ep *ep;
-	struct ehci_qtd *qtd;
+	struct ehci_qtd *q;
 	uint32_t info1, info2 = QH_MULT(1);
-	int i, ret = 0;
+	int nd, ret = 0;
 
 	if (x->len > 5 * 0x1000 - (x->bufp[0] & 0xfff)) {
 		return -EINVAL;
@@ -856,56 +935,61 @@ int ci_ehci_raw_submit(const struct device *dev, struct ci_ehci_raw_xfer *x)
 		ret = -ENOMEM;
 		goto out;
 	}
-	if (ep->raw) {
+	if (ep->rawn >= (x->control ? 1 : CI_EHCI_RAW_DEPTH)) {
 		ret = -EBUSY;
 		goto out;
 	}
-	i = qtd_alloc(p);
-	if (i < 0) {
+	nd = qtd_alloc(p);
+	if (nd < 0) {
 		ret = -ENOMEM;
 		goto out;
 	}
-	ep->qtds[0] = i;
-	ep->nqtd = 1;
 
-	qtd = &p->pool->qtd[i];
-	qtd->next = LINK_T;
-	qtd->alt = LINK_T;
-	for (int k = 0; k < 5; k++) {
-		qtd->buf[k] = x->bufp[k];
-	}
-	qtd->token = QTD_BYTES(x->len) | QTD_IOC | QTD_CERR(3) | ((uint32_t)x->pid << 8) |
-		     (x->dt ? QTD_DT : 0) | QTD_STS_ACTIVE;
-
-	/* Queue head: toggle from the qTD; TT routing for full/low speed */
-	info1 = QH_ADDR(x->addr) | QH_EP(x->ep) | QH_MPS(x->mps) | QH_DTC |
-		((uint32_t)x->speed << 12);
-	if (x->speed == CI_EHCI_RAW_SPEED_HIGH) {
-		if (!x->periodic) {
-			info1 |= QH_RL(4);
-		}
-		if (x->periodic) {
-			info2 |= QH_SMASK(0x01);
-		}
-	} else {
+	if (ep->rawn == 0) {
+		/* Queue head idle: (re)program it; the toggle follows the caller's */
+		info1 = QH_ADDR(x->addr) | QH_EP(x->ep) | QH_MPS(x->mps) |
+			((uint32_t)x->speed << 12);
 		if (x->control) {
-			info1 |= QH_C;
+			info1 |= QH_DTC;	/* control: toggle from each qTD */
 		}
-		info2 |= QH_HUB(x->tt_hub) | QH_PORT(x->tt_port);
-		if (x->periodic) {
-			info2 |= QH_SMASK(0x01) | QH_CMASK(0x1c);
+		if (x->speed == CI_EHCI_RAW_SPEED_HIGH) {
+			if (!x->periodic) {
+				info1 |= QH_RL(4);
+			} else {
+				info2 |= QH_SMASK(0x01);
+			}
+		} else {
+			if (x->control) {
+				info1 |= QH_C;
+			}
+			info2 |= QH_HUB(x->tt_hub) | QH_PORT(x->tt_port);
+			if (x->periodic) {
+				info2 |= QH_SMASK(0x01) | QH_CMASK(0x1c);
+			}
 		}
+		ep->qh->info1 = info1;
+		ep->qh->info2 = info2;
+		ep->qh->token = (!x->control && x->dt) ? QTD_DT : 0;
 	}
-	ep->qh->info1 = info1;
-	ep->qh->info2 = info2;
-	ep->qh->token = 0;
-	ep->qh->alt = LINK_T;
+
+	/* Fill the dummy tail, hang a fresh dummy behind it, activate last */
+	q = &p->pool->qtd[ep->dummy];
+	raw_qtd_idle(p, nd);
+	for (int k = 0; k < 5; k++) {
+		q->buf[k] = x->bufp[k];
+	}
+	q->alt = (!x->control && x->pid == CI_EHCI_RAW_PID_IN) ?
+		 bus_addr(p, &p->pool->qtd[ep->stop]) : LINK_T;
+	q->next = bus_addr(p, &p->pool->qtd[nd]);
 	barrier_dmem_fence_full();
-	ep->qh->next = bus_addr(p, qtd);
+	q->token = QTD_BYTES(x->len) | QTD_IOC | QTD_CERR(3) | ((uint32_t)x->pid << 8) |
+		   (x->dt ? QTD_DT : 0) | QTD_STS_ACTIVE;
 	barrier_dsync_fence_full();
 
+	x->qtd = ep->dummy;
 	x->priv = ep;
-	ep->raw = x;
+	ep->dummy = nd;
+	ep->rawq[ep->rawn++] = x;
 	ep_link(p, ep);
 	k_sem_give(&p->work);
 out:
@@ -916,18 +1000,21 @@ out:
 bool ci_ehci_raw_poll(const struct device *dev, struct ci_ehci_raw_xfer *x)
 {
 	struct ehci_priv *p = uhc_get_private(dev);
-	struct ehci_ep *ep;
+	struct ehci_ep *ep = x->priv;
 	bool done;
 
 	/* Cheap check first: the qTD token is in uncached DTCM */
-	ep = x->priv;
-	if (ep && ep->raw == x && (p->pool->qtd[ep->qtds[0]].token & QTD_STS_ACTIVE) &&
-	    !(p->pool->qtd[ep->qtds[0]].token & QTD_STS_HALTED)) {
+	if (!ep) {
+		return true;
+	}
+	uint32_t tok = p->pool->qtd[x->qtd].token;
+
+	if ((tok & QTD_STS_ACTIVE) && !(tok & QTD_STS_HALTED)) {
 		return false;
 	}
 	uhc_lock_internal(dev, K_FOREVER);
 	ep = x->priv;
-	if (ep && ep->raw == x) {
+	if (ep) {
 		raw_check(p, ep);
 	}
 	done = x->priv == NULL;
@@ -942,13 +1029,20 @@ int ci_ehci_raw_cancel(const struct device *dev, struct ci_ehci_raw_xfer *x)
 
 	uhc_lock_internal(dev, K_FOREVER);
 	ep = x->priv;
-	if (ep && ep->raw == x) {
+	if (ep) {
+		/* Take the queue head off the schedule; @x goes without callback, the rest unrun */
 		ep_unlink(p, ep);
-		ep_free_qtds(p, ep);
-		ep->qh->next = LINK_T;
-		ep->qh->token = 0;
-		ep->raw = NULL;
-		x->priv = NULL;
+		for (int i = 0; i < ep->rawn; i++) {
+			if (ep->rawq[i] == x) {
+				qtd_free(p, x->qtd);
+				memmove(&ep->rawq[i], &ep->rawq[i + 1],
+					(ep->rawn - i - 1) * sizeof(ep->rawq[0]));
+				ep->rawn--;
+				x->priv = NULL;
+				break;
+			}
+		}
+		raw_reset_chain(p, ep, -ECONNRESET);
 	}
 	uhc_unlock_internal(dev);
 	return 0;
@@ -977,7 +1071,7 @@ static void schedule(struct ehci_priv *p)
 		if (!ep->used) {
 			continue;
 		}
-		if (ep->raw) {
+		if (ep->is_raw) {
 			raw_check(p, ep);
 			continue;
 		}
@@ -1047,8 +1141,8 @@ static void port_disconnected(struct ehci_priv *p)
 		if (!ep->used) {
 			continue;
 		}
-		if (ep->raw) {
-			raw_finish(p, ep, -ENODEV, 0, false);
+		if (ep->is_raw) {
+			raw_reset_chain(p, ep, -ENODEV);
 		}
 		ep_flush(p, ep, -ENODEV);
 		ep_release(p, ep);

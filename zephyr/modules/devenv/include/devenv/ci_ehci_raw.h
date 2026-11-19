@@ -46,14 +46,24 @@ struct ci_ehci_raw_xfer {
 	ci_ehci_raw_done_t done;	/* called from the driver thread, keep it short */
 	void *user;
 	/* out */
-	int status;		/* 0, -EPIPE (STALL), -EIO, -EOVERFLOW (babble), -ENODEV, -ECONNRESET */
+	int status;		/* 0, -EPIPE (STALL), -EIO, -EOVERFLOW (babble), -ENODEV,
+				 * -ECONNRESET (not run: behind a short packet or an error) */
 	size_t actual;
 	bool dt_out;		/* toggle after the stage */
 	/* driver private */
 	void *priv;
+	int16_t qtd;
 };
 
-/* Queue one stage; at most one per (address, endpoint, direction) at a time (-EBUSY) */
+/*
+ * Queue one stage. Bulk/interrupt endpoints take up to CI_EHCI_RAW_DEPTH
+ * stages at a time (pipelined; the controller keeps the data toggle, synced
+ * from x->dt whenever the endpoint's queue was empty); control endpoints one
+ * (-EBUSY). After a short IN packet the stages queued behind it are not run:
+ * they complete with -ECONNRESET.
+ */
+#define CI_EHCI_RAW_DEPTH	8
+
 int ci_ehci_raw_submit(const struct device *dev, struct ci_ehci_raw_xfer *x);
 
 /*

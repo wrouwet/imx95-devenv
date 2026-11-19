@@ -181,6 +181,31 @@ priority (network, RPMsg, shell) still runs first. Adaptive polling costs no thr
 timer (sub-millisecond sleeps) or waking on the physical completion would turn most of the
 spinning into idle time.
 
+### Optimization round 1 (2026-11-19)
+
+1. The translator checks the physical qTD itself while a stage is pending (`ci_ehci_raw_poll`)
+   instead of waiting for the completion interrupt, which arrives at a microframe boundary at best:
+   relay delay 8 us → 0 us, 14.4 → 16.2 MB/s.
+2. Pipelining: while a bulk stage is in flight, the vEHCI offers the qTDs Linux already queued
+   behind it (`prefetch`, up to 8). The physical queue head takes them chained (dummy-tail append;
+   the controller keeps the bulk toggle, synced from Linux's, with the predicted toggle passed
+   along). A short IN packet stops at a stop qTD and the stages behind it are resubmitted.
+   Correct (checksums, 0 errors, ~90 % of stages prefetched, 256 MiB read clean), but no
+   throughput gain on this stick: **its flash is the limit** (16.5 MB/s with 120 KiB SCSI
+   commands, 17.3 MB/s with 1 MiB ones).
+
+| Data path | Throughput (stick-bound) | M7 work | Cost | **M7-bound ideal** (infinitely fast drive, M7 at 100 %) |
+|---|---|---|---|---|
+| zero-copy, pipelined | 16.2 MB/s | 18.9 % (14.6 vEHCI + 4.3 driver) | ~9.3 cycles/byte, ~35 k cycles/stage | ~690 Mbit/s (~86 MB/s) |
+| bounce, pipelined | 16.1 MB/s | 30.7 % | ~15 cycles/byte | ~420 Mbit/s (~52 MB/s) |
+| zero-copy, before round 1 | 14.4 MB/s | 11.6 % | 6.4 cycles/byte | ~1.0 Gbit/s |
+
+The M7-bound ideal assumes Linux's 4 KiB qTDs (one per scatter-gather page). Pipelining made
+each stage cost more on the M7 (more uncached reads of Linux's qTDs, more driver work); the
+per-stage cost is dominated by uncached word accesses to Linux's DDR (~100–200 cycles each).
+Next candidates: fewer host-memory accesses per stage (cache each queue head's static fields,
+read the overlay token before the whole QH, remember how far the prefetch got), `-O2`.
+
 Rough projection, if the link weren't the limit (zero-copy, data never touches the M7):
 - at today's 4 KB stages: ~32,000 stages/s at 100 % M7, about 1 Gbit/s
 - with 16–20 KB stages (what one EHCI qTD can carry with page-aligned buffers): about 4–5 Gbit/s

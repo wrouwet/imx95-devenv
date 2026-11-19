@@ -132,6 +132,7 @@ LOG_MODULE_REGISTER(vehci, CONFIG_VEHCI_LOG_LEVEL);
 #define RESET_ENABLE_MS		10
 #define MAX_QH_PER_PASS		64
 #define MAX_QTD_PER_QH		16
+#define PREFETCH_DEPTH		8
 
 struct hw_qh {
 	uint32_t link;
@@ -520,6 +521,51 @@ static enum exec_result qtd_execute(const struct hw_qh *qh, bool periodic, uint3
 	return EXEC_DONE;
 }
 
+/* Offer the qTDs queued behind the in-flight one (bulk only) to the device */
+static void prefetch_ahead(const struct hw_qh *qh)
+{
+	const struct vehci_device_ops *ops;
+	void *ctx;
+	uint32_t next = qh->next;
+	uint16_t mps = QH_MPS(qh->info1) ? QH_MPS(qh->info1) : 512;
+	/* Toggle each queued stage starts with: one flip per packet before it */
+	bool dt = qh->token & TOK_DT;
+	size_t prev = TOK_BYTES(qh->token);
+
+	if ((qh->info1 & QH_C) || QH_EP(qh->info1) == 0 ||
+	    !vehci_hub_route(QH_ADDR(qh->info1), &ops, &ctx) || !ops->prefetch) {
+		return;
+	}
+	for (int n = 0; n < PREFETCH_DEPTH && !(next & LINK_T); n++) {
+		struct hw_qtd qtd;
+
+		if (host_rd(LINK_ADDR(next), &qtd, sizeof(qtd)) || !(qtd.token & TOK_ACTIVE)) {
+			return;
+		}
+		dt ^= ((prev ? DIV_ROUND_UP(prev, mps) : 1) & 1);
+		prev = TOK_BYTES(qtd.token);
+
+		struct vehci_xfer x = {
+			.id = LINK_ADDR(next),
+			.addr = QH_ADDR(qh->info1),
+			.ep = QH_EP(qh->info1),
+			.pid = TOK_PID(qtd.token),
+			.speed = (enum vehci_speed)QH_EPS(qh->info1),
+			.tt_hub = QH_HUB(qh->info2),
+			.tt_port = QH_PORT(qh->info2),
+			.mps = mps,
+			.dt = dt,
+			.len = TOK_BYTES(qtd.token),
+		};
+
+		memcpy(x.bufp, qtd.buf, sizeof(x.bufp));
+		if (ops->prefetch(ctx, &x)) {
+			return;
+		}
+		next = qtd.next;
+	}
+}
+
 static void qh_process(uint32_t addr, bool periodic)
 {
 	struct hw_qh qh;
@@ -528,6 +574,9 @@ static void qh_process(uint32_t addr, bool periodic)
 		v.pending |= STS_FATAL;
 		return;
 	}
+
+	/* Look ahead only when something changed here (stage loaded or retired), not every poll */
+	bool changed = false;
 
 	for (int n = 0; n < MAX_QTD_PER_QH; n++) {
 		uint32_t tok;
@@ -559,12 +608,16 @@ static void qh_process(uint32_t addr, bool periodic)
 			memcpy(qh.buf, qtd.buf, sizeof(qh.buf));
 			host_wr(addr + offsetof(struct hw_qh, cur), &qh.cur,
 				sizeof(qh) - offsetof(struct hw_qh, cur));
+			changed = true;
 		}
 
 		if (qtd_execute(&qh, periodic, &tok, &short_pkt) == EXEC_NAK) {
 			v.st.naks++;
 			if (!periodic) {
 				v.active = true;	/* a pending async stage: poll fast */
+				if (changed) {
+					prefetch_ahead(&qh);
+				}
 			}
 			return;
 		}
@@ -586,6 +639,7 @@ static void qh_process(uint32_t addr, bool periodic)
 		if ((tok & TOK_IOC) || short_pkt) {
 			v.pending |= STS_INT;
 		}
+		changed = true;
 	}
 }
 

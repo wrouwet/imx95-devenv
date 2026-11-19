@@ -88,6 +88,13 @@ struct vehci_device_ops {
 	bool (*reset_busy)(void *ctx);
 	/* Optional: current address; without it the device takes every address but the hub's */
 	uint8_t (*address)(void *ctx);
+	/*
+	 * Optional pipelining: while a bulk stage is in flight, the stages the
+	 * host has already queued behind it are offered here (in order, same
+	 * endpoint) so they can start early. Return 0 to see the next one,
+	 * non-zero to stop. They come back through transfer() when it is their turn.
+	 */
+	int (*prefetch)(void *ctx, struct vehci_xfer *x);
 };
 
 struct vehci_transport {
