@@ -162,26 +162,24 @@ static int cmd_perf(const struct shell *sh, size_t argc, char **argv)
 	uint32_t secs = argc > 1 ? strtoul(argv[1], NULL, 0) : 5;
 	const char *drv = DEVICE_DT_GET(DT_NODELABEL(usb2))->name;
 	struct vehci_stats a, b;
-	uint64_t d0, d1, t0, t1, hz = sys_clock_hw_cycles_per_sec();
-	k_thread_runtime_stats_t all0, all1;
+	uint64_t d0, d1;
+	int64_t t0, t1;
 
+	/* No k_cycle_get_64() here: the 32 kHz system timer has no 64-bit counter (it traps) */
 	vehci_get_stats(&a);
 	d0 = thread_cycles(drv);
-	k_thread_runtime_stats_all_get(&all0);
-	t0 = k_cycle_get_64();
+	t0 = k_uptime_get();
 	k_sleep(K_SECONDS(secs));
-	t1 = k_cycle_get_64();
-	k_thread_runtime_stats_all_get(&all1);
+	t1 = k_uptime_get();
 	d1 = thread_cycles(drv);
 	vehci_get_stats(&b);
 
-	uint64_t el = t1 - t0;	/* system cycles */
 	uint64_t bytes = b.bytes - a.bytes;
 	uint64_t work = b.work_cycles - a.work_cycles;	/* CPU (DWT) cycles */
 	uint64_t poll = b.poll_cycles - a.poll_cycles;
 	uint64_t drvc = d1 - d0;
 	uint64_t cpu_hz = 800000000ULL;	/* Cortex-M7 core clock */
-	uint64_t cpu_el = el * (cpu_hz / hz);
+	uint64_t cpu_el = (uint64_t)(t1 - t0) * (cpu_hz / 1000);
 	uint64_t load = work + drvc;
 
 	shell_print(sh, "%u s: %llu bytes (%llu KB/s), %u stages, %u work polls of %u polls", secs,
@@ -197,8 +195,6 @@ static int cmd_perf(const struct shell *sh, size_t argc, char **argv)
 		shell_print(sh, "cost %llu.%02llu cycles/byte -> data rate at 100 %% M7 work: %llu Mbit/s",
 			    cpb100 / 100, cpb100 % 100, cpu_hz * 8 * 100 / cpb100 / 1000000);
 	}
-	ARG_UNUSED(all0);
-	ARG_UNUSED(all1);
 	return 0;
 }
 

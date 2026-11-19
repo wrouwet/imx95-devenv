@@ -141,6 +141,36 @@ m7: xlat: key 'o' (keyboard at address 5, passing to the host)
 ```
 Typed keys arrive in Linux (Weston, the tmux Linux pane).
 
+## Throughput and M7 load (measured 2026-11-19)
+
+USB 2.0 high-speed stick (SMI "USB DISK", 2 GB) on the physical port, Linux `dd` reading 64 MiB
+with `iflag=direct`; `vehci perf 4` on the M7 during the read. Checksums identical in both modes.
+
+| Data path | Throughput | M7 work (vEHCI + USB2 driver thread) | Cost | Rate at 100 % M7 work |
+|---|---|---|---|---|
+| zero-copy | 14.4 MB/s | 8.5 % + 3.1 % = 11.6 % | 6.4 cycles/byte | ~1.0 Gbit/s |
+| bounce | 14.3 MB/s | 18.8 % + 3.1 % = 21.9 % | 12.3 cycles/byte | ~0.5 Gbit/s |
+
+- About 3,700 stages/s at about 3.9 KB each: Linux's EHCI driver builds one qTD per 4 KiB
+  scatter-gather page. Zero-copy work is therefore per stage, not per byte: about 25,000 M7 cycles
+  (about 31 us at 800 MHz) per stage, mostly uncached reads and writes of Linux's QHs and qTDs.
+  Bounce mode adds the memcpy (about 6 cycles/byte).
+- "M7 work" counts only polls that retired a stage, plus the driver thread. The vEHCI thread
+  polls whenever nothing else runs (69 % of the core idle, about 90 % under load). That is
+  spare time, not load; an event-driven design (or a doorbell on PCIe) would free it.
+- 14.4 MB/s is latency-bound, not CPU-bound: one stage per endpoint at a time, about 270 us
+  per 4 KB stage round trip (USB 2 bus time + relay). Pipelining several qTDs of a queue head
+  would raise it towards the link rate.
+
+Rough projection, if the link weren't the limit (zero-copy, data never touches the M7):
+- at today's 4 KB stages: ~32,000 stages/s at 100 % M7, about 1 Gbit/s
+- with 16–20 KB stages (what one EHCI qTD can carry with page-aligned buffers): about 4–5 Gbit/s
+- larger transfers per descriptor (xHCI TRBs up to 64 KB) and cheaper per-stage handling (fewer
+  uncached accesses, no polling): on the order of 10 Gbit/s before memory bandwidth and DMA
+  latency take over.
+SuperSpeed itself needs a virtual xHCI: EHCI's registers and descriptors cannot express USB 3.
+The per-stage cost above is the number to scale.
+
 ## Not done yet
 
 - Throughput tuning (the translator handles one stage per endpoint at a time; bulk devices such
