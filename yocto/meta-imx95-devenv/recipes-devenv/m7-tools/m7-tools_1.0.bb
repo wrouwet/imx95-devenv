@@ -1,6 +1,6 @@
 SUMMARY = "Cortex-M7 control tools for the imx95-devenv image"
 DESCRIPTION = "m7ctl (remoteproc load/start/stop/console), ENETC VF handoff to \
-the M7, SMMU identity for M7-owned DMA masters (USB2), optional firmware autostart, and the on-target Zephyr setup script."
+the M7, SMMU identity for M7-owned DMA masters (USB2), binding of the Wimmo virtual EHCI, optional firmware autostart, and the on-target Zephyr setup script."
 LICENSE = "MIT"
 LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/MIT;md5=0835ade698e0bcf8506ecda2f7b4f302"
 
@@ -10,6 +10,9 @@ SRC_URI = " \
     file://m7-vf-handoff.service \
     file://m7-dma-handoff \
     file://m7-dma-handoff.service \
+    file://m7-vehci \
+    file://m7-vehci-event \
+    file://90-wimmo-vehci.rules \
     file://m7-autostart.service \
     file://m7.default \
     file://imx95-zephyr-setup \
@@ -26,6 +29,9 @@ do_install() {
     install -D -m 0755 ${S}/imx95-zephyr-setup ${D}${bindir}/imx95-zephyr-setup
     install -D -m 0755 ${S}/m7-vf-handoff ${D}${sbindir}/m7-vf-handoff
     install -D -m 0755 ${S}/m7-dma-handoff ${D}${sbindir}/m7-dma-handoff
+    install -D -m 0755 ${S}/m7-vehci ${D}${sbindir}/m7-vehci
+    install -D -m 0755 ${S}/m7-vehci-event ${D}${sbindir}/m7-vehci-event
+    install -D -m 0644 ${S}/90-wimmo-vehci.rules ${D}${nonarch_base_libdir}/udev/rules.d/90-wimmo-vehci.rules
     install -D -m 0644 ${S}/m7.default ${D}${sysconfdir}/default/m7
     install -D -m 0644 ${S}/m7-vf-handoff.service ${D}${systemd_system_unitdir}/m7-vf-handoff.service
     install -D -m 0644 ${S}/m7-dma-handoff.service ${D}${systemd_system_unitdir}/m7-dma-handoff.service
@@ -33,4 +39,6 @@ do_install() {
 }
 
 CONFFILES:${PN} = "${sysconfdir}/default/m7"
-RDEPENDS:${PN} = "pciutils iproute2 picocom kmod"
+RDEPENDS:${PN} = "pciutils iproute2 picocom kmod devmem2"
+
+FILES:${PN} += "${nonarch_base_libdir}/udev/rules.d"

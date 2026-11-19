@@ -30,7 +30,15 @@ state() { cat "$R/state"; }
 
 do_stop() {
 	if [ "$(state)" = running ] || [ "$(state)" = attached ]; then
+		# The Wimmo virtual EHCI's registers vanish with the M7: release Linux's driver first
+		if command -v m7-vehci >/dev/null; then m7-vehci unbind || true; fi
 		echo stop > "$R/state"
+	fi
+}
+
+vehci_bind() {
+	if command -v m7-vehci >/dev/null && [ -e /sys/bus/platform/devices/20420000.usb ]; then
+		m7-vehci bind || true
 	fi
 }
 
@@ -53,10 +61,10 @@ status)
 	ls /dev/ttyRPMSG* 2>/dev/null | sed 's/^/rpmsg tty:  /' || true
 	;;
 load)    [ $# -eq 2 ] || { echo "usage: m7ctl load <file.elf>" >&2; exit 2; }; do_stop; do_load "$2" ;;
-start)   echo start > "$R/state" ;;
+start)   echo start > "$R/state"; vehci_bind ;;
 stop)    do_stop ;;
-restart) do_stop; echo start > "$R/state" ;;
-run)     [ $# -eq 2 ] || { echo "usage: m7ctl run <file.elf>" >&2; exit 2; }; do_stop; do_load "$2"; echo start > "$R/state" ;;
+restart) do_stop; echo start > "$R/state"; vehci_bind ;;
+run)     [ $# -eq 2 ] || { echo "usage: m7ctl run <file.elf>" >&2; exit 2; }; do_stop; do_load "$2"; echo start > "$R/state"; vehci_bind ;;
 console)
 	if command -v imx95-console >/dev/null && [ -z "${TMUX:-}" ]; then
 		exec imx95-console attach M7

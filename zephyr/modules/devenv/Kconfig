@@ -23,4 +23,24 @@ config UHC_CI_EHCI_THREAD_PRIORITY
 
 endif
 
+config VEHCI
+	bool "Virtual EHCI host controller (\"Wimmo\")"
+	help
+	  Emulate an EHCI host controller for a standard EHCI driver on another
+	  processor: register page in shared memory, schedules in the host's
+	  memory, a level interrupt. The integration supplies the transport
+	  (struct vehci_transport). See include/vehci/vehci.h.
+
+if VEHCI
+
+config VEHCI_THREAD_STACK_SIZE
+	int "Emulation thread stack size"
+	default 2048
+
+module = VEHCI
+module-str = vehci
+source "subsys/logging/Kconfig.template.log_config"
+
+endif
+
 endmenu

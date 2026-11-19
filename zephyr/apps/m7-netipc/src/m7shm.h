@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
  * Memory window in the M7 DTCM, shared with Linux (m7shm.ko, /dev/m7shm).
+ * The first 4 KiB hold the Wimmo virtual EHCI's registers (CONFIG_APP_VEHCI).
  * TCM is never cached on the M7, so no cache maintenance is needed; use
  * barrier_dmem_fence_full() where the other side must see writes in order.
  */

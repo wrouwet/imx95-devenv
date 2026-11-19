@@ -1,0 +1,2 @@
+# Announce the Wimmo virtual EHCI (M7) and the USB devices behind it on the consoles
+ACTION=="add|remove", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", DEVPATH=="*/20420000.usb/*", RUN+="/usr/sbin/m7-vehci-event"

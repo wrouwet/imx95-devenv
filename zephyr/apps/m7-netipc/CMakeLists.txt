@@ -9,6 +9,7 @@ project(m7_netipc)
 
 target_include_directories(app PRIVATE ${LIBMETAL_INCLUDE_DIR} ${OPENAMP_INCLUDE_DIR} ${PLATFORM_DIR})
 target_sources(app PRIVATE src/main.c src/rpmsg.c src/net.c src/reflector.c src/shm.c src/usb.c)
+target_sources_ifdef(CONFIG_APP_VEHCI app PRIVATE src/vehci_a55.c)
 # Optional demo: print USB2 keyboard key presses (uses private host stack headers)
 if(CONFIG_APP_USB2_KBD_DEMO)
   target_sources(app PRIVATE src/usb_kbd.c)

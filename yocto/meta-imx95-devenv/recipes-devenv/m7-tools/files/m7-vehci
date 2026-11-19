@@ -1,0 +1,59 @@
+#!/bin/sh
+# m7-vehci - attach Linux's stock EHCI driver to the "Wimmo" virtual EHCI on the M7.
+#
+#   m7-vehci bind      wait for the M7 to report the controller ready, then bind
+#                      ehci-platform to the vehci device (driver_override)
+#   m7-vehci unbind    release it (must happen before the M7 stops)
+#   m7-vehci status
+#
+# The virtual EHCI's registers live in M7 TCM, which only exists while the M7
+# runs, so the dts node (compatible "wimmo,vehci") matches no driver at boot.
+# Nothing here talks EHCI: the kernel's generic ehci-platform does all of it.
+set -eu
+
+DEV=20420000.usb
+D=/sys/bus/platform/devices/$DEV
+DRV=/sys/bus/platform/drivers/ehci-platform
+MAGIC_ADDR=0x20420100	# vendor block: "Wimm"
+MAGIC=0x6D6D6957
+
+log() { echo "m7-vehci: $*"; }
+
+m7_running() {
+	for r in /sys/class/remoteproc/remoteproc*; do
+		case "$(cat "$r/name" 2>/dev/null)" in imx-rproc*) ;; *) continue ;; esac
+		case "$(cat "$r/state")" in running|attached) return 0 ;; esac
+	done
+	return 1
+}
+
+bound() { [ -e "$D/driver" ]; }
+
+magic() { devmem2 "$MAGIC_ADDR" w 2>/dev/null | sed -n 's/.*: \(0x[0-9A-Fa-f]*\)$/\1/p'; }
+
+[ -e "$D" ] || { log "no $DEV device (dtb without the vehci node?)"; exit 1; }
+
+case "${1:-status}" in
+bind)
+	bound && { log "already bound to $(basename "$(readlink -f "$D/driver")")"; exit 0; }
+	for i in $(seq 1 50); do
+		m7_running && [ "$(magic)" = "$MAGIC" ] && break
+		sleep 0.2
+	done
+	m7_running || { log "M7 not running"; exit 1; }
+	[ "$(magic)" = "$MAGIC" ] || { log "M7 firmware has no virtual EHCI (no Wimmo signature)"; exit 1; }
+	echo ehci-platform > "$D/driver_override"
+	echo "$DEV" > "$DRV/bind"
+	log "ehci-platform bound to the Wimmo virtual EHCI"
+	;;
+unbind)
+	if bound; then
+		echo "$DEV" > "$D/driver/unbind"
+		log "unbound"
+	fi
+	;;
+status)
+	if bound; then log "bound ($(basename "$(readlink -f "$D/driver")"))"; else log "not bound"; fi
+	;;
+*) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+esac

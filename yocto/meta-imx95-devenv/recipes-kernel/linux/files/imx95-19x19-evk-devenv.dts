@@ -46,6 +46,40 @@
 		compatible = "devenv,m7-dma-master";
 		iommus = <&smmu 0xf>;
 	};
+
+	/*
+	 * "Wimmo" virtual EHCI, emulated by the M7 in the first 4 KiB of the
+	 * m7shm window (TCM). Linux drives it with its stock generic EHCI driver
+	 * (ehci-platform), nothing else: no glue code.
+	 *  - The register page only exists while the M7 runs, so the compatible
+	 *    matches no driver; m7-vehci binds ehci-platform (driver_override)
+	 *    once the M7 reports the controller ready and unbinds it before the
+	 *    M7 stops.
+	 *  - Interrupt: MSGINTR1, owned and raised/cleared by the M7 (A55 GIC SPI
+	 *    236, level).
+	 *  - DMA: dma-ranges keeps Linux's queue heads, qTDs and (bounced)
+	 *    buffers below 0xC0000000, in DDR the M7 may access (SM config grants
+	 *    0x90000000-0xDFFFFFFF). The limit also becomes Linux's ZONE_DMA
+	 *    (arm64 takes the lowest dma-ranges in the tree): it must end below
+	 *    the CMA area (0xC3000000+), or CMA spans two zones and is not
+	 *    activated (seen: 0xE0000000 broke Weston's buffer allocations).
+	 *    swiotlb lands below it too.
+	 * On a PCIe endpoint the same M7 code sits behind a BAR, an MSI and an
+	 * outbound window, with the host's stock ehci-pci.
+	 */
+	vehci-bus {
+		compatible = "simple-bus";
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+		dma-ranges = <0 0 0 0 0 0xc0000000>;
+
+		vehci: usb@20420000 {
+			compatible = "wimmo,vehci";
+			reg = <0 0x20420000 0 0x1000>;
+			interrupts = <GIC_SPI 236 IRQ_TYPE_LEVEL_HIGH>;
+		};
+	};
 };
 
 /* Owned by the M7, see m7-usb2-dma above */

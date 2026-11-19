@@ -19,4 +19,17 @@ config APP_USB2_KBD_DEMO
 	  key on the M7 console. For debugging and demos; "usb2 keys off"
 	  silences it at run time.
 
+config APP_VEHCI
+	bool "Wimmo virtual EHCI for Linux on the A55"
+	default y
+	select VEHCI
+	help
+	  Emulate an EHCI controller in the first 4 KiB of the m7shm window for
+	  Linux's stock ehci-platform driver (see src/vehci_a55.c).
+
+config APP_VEHCI_TESTDEV
+	bool "Attach the Wimmo test device at boot"
+	default y
+	depends on APP_VEHCI
+
 source "Kconfig.zephyr"

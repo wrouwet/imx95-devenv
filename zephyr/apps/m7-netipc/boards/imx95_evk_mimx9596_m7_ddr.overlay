@@ -13,6 +13,8 @@
  * m7-vf-handoff.service enables and trusts the VF.
  */
 
+#include <zephyr/dt-bindings/memory-attr/memory-attr-arm.h>
+
 / {
 	chosen {
 		zephyr,ipc_shm = &shmem;
@@ -65,6 +67,35 @@
 		devenv,pool-bus-addr = <0x20400000>;
 		disable-over-current;
 		status = "okay";
+	};
+
+	/*
+	 * Linux DDR that the virtual EHCI ("Wimmo", src/vehci_a55.c) reads and
+	 * writes: Linux's queue heads, qTDs and buffers for 32-bit DMA. The SM
+	 * config grants the M7 0x90000000-0xDFFFFFFF; Linux keeps the vEHCI's DMA
+	 * there (dma-ranges). Not cached on the M7, so both sides see each other's
+	 * writes (Linux maps its coherent DMA memory non-cacheable too).
+	 * ARMv7-M MPU regions: power-of-two sizes, aligned.
+	 */
+	linux_ddr0: memory@90000000 {
+		compatible = "zephyr,memory-region", "mmio-sram";
+		reg = <0x90000000 DT_SIZE_M(256)>;
+		zephyr,memory-region = "LINUX_DDR0";
+		zephyr,memory-attr = <DT_MEM_ARM(ATTR_MPU_RAM_NOCACHE)>;
+	};
+
+	linux_ddr1: memory@a0000000 {
+		compatible = "zephyr,memory-region", "mmio-sram";
+		reg = <0xa0000000 DT_SIZE_M(512)>;
+		zephyr,memory-region = "LINUX_DDR1";
+		zephyr,memory-attr = <DT_MEM_ARM(ATTR_MPU_RAM_NOCACHE)>;
+	};
+
+	linux_ddr2: memory@c0000000 {
+		compatible = "zephyr,memory-region", "mmio-sram";
+		reg = <0xc0000000 DT_SIZE_M(512)>;
+		zephyr,memory-region = "LINUX_DDR2";
+		zephyr,memory-attr = <DT_MEM_ARM(ATTR_MPU_RAM_NOCACHE)>;
 	};
 };
 

@@ -6,7 +6,19 @@ work out from the files: current status, decisions and the reasons for them, got
 ## Status (keep this section current)
 
 <!-- STATUS-START -->
-- Last updated: 2026-11-19 by Claude (m7shm + USB2 session, on the 192.168.1.224 PC, see "Where things live")
+- Last updated: 2026-11-19 by Claude (m7shm + USB2 + vEHCI session, on the 192.168.1.224 PC, see "Where things live")
+- **"Wimmo" virtual EHCI (2026-11-19, verified on hardware):** M7 emulates an EHCI controller
+  (register page = first 4 KiB of the m7shm window); Linux uses ONLY its stock ehci-platform (user's
+  hard requirement: no glue module), bound by `m7-vehci` via driver_override after the M7 is up
+  (m7ctl unbinds before stop). IRQ = MSGINTR1 -> GIC SPI 236; DMA kept below 0xC0000000 by
+  dma-ranges (0xE0000000 broke CMA/Weston, see docs/vehci.md); SM grants M7 DDR 0x90000000-0xDFFFFFFF.
+  Test device 1209:0001 "Wimmo" enumerates, hot-plug and m7ctl restart OK. Goal: same core behind a
+  PCIe endpoint with the host's stock ehci-pci (BAR/outbound window/MSI); next: translator to the
+  physical USB2, virtual HS hub for FS/LS. On the board by hand: V7 boot image (SM with the DDR
+  grant), dtb with vehci node, /usr/sbin/m7-vehci(-event), /etc/udev/rules.d/90-wimmo-vehci.rules (console
+  announcements), /usr/bin/m7ctl, firmware m7-netipc-usb2.elf.
+- Every cold boot logs `Reset LM 1, reason=fccu, errId=38` on the SM UART once (seen since the first
+  hand-made boot image); the M7 then runs normally. Cause not investigated.
 - **USB2 belongs to the M7 (2026-11-19, verified on hardware from a cold eMMC boot):** SM cfg moves
   `USB2` to LM1; Linux dts has no USB2 (only `m7-usb2-dma` for SMMU stream 0xf, made identity by
   the new `m7-dma-handoff.service`) and keeps `reg_usb_vbus` on; U-Boot bootcmd without `bootflow

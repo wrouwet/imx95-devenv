@@ -1,6 +1,7 @@
 # M7 memory window (m7shm)
 
-A 128 KiB window of Cortex-M7 DTCM that Linux on the A55 can map. It is
+A 128 KiB window of Cortex-M7 DTCM that Linux on the A55 can map. Its first 4 KiB are now the
+register page of the Wimmo virtual EHCI ([vehci.md](vehci.md)). It is
 plain memory: there are no doorbells, no header and no protocol on top yet.
 It is the base for a descriptor ring that comes later; the long-term goal is an
 external PCIe host reaching the M7 through such a window.
