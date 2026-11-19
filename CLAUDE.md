@@ -27,6 +27,10 @@ work out from the files: current status, decisions and the reasons for them, got
   628 M7 cycles per TRB (EHCI: 18,000 per stage). docs/vxhci.md. On the board: dtb node added with
   fdtput (backup `.dtb.pre-vxhci`), m7-vehci binds both controllers, default firmware = this build.
   The Yocto build of all hand-made board changes moves to the T480 (disk on the .224 PC too tight).
+  UAS (2026-11-19, verified): drive alt 1 = UAS with 32 streams, vxHCI streams (MaxPSASize 5), Linux
+  binds `uas` (queue depth 30); null drive 690-800 MB/s (bulk-only 436-489). xHCI has ONE doorbell
+  register per slot, so the emulation never relies on seeing every doorbell (slot sweep, device
+  stream-ready, safe restart of Stopped endpoints, 5 ms safety sweep); see docs/vxhci.md.
 - Every cold boot logs `Reset LM 1, reason=fccu, errId=38` on the SM UART once (seen since the first
   hand-made boot image); the M7 then runs normally. Cause not investigated.
 - **USB2 belongs to the M7 (2026-11-19, verified on hardware from a cold eMMC boot):** SM cfg moves

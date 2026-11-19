@@ -53,8 +53,8 @@ Commands: Enable/Disable Slot, Address Device (the controller assigns the addres
 slot id), Configure Endpoint, Evaluate Context, Reset/Stop Endpoint, Set TR Dequeue Pointer,
 Reset Device and No Op. TRBs: Normal, Setup/Data/Status, Link, Event Data and No Op. A short
 packet ends the TD with one event, which is what Linux's bulk path expects. A STALL halts the
-endpoint and puts the TRB pointer in the output context. Not supported: isochronous, streams,
-LPM, more than one interrupter.
+endpoint and puts the TRB pointer in the output context. Streams (for UAS) are
+supported, see below. Not supported: isochronous, LPM, more than one interrupter.
 
 The capabilities are xHCI 1.0, 8 slots, 2 ports (1 = USB 3, 2 = USB 2, each with a Supported
 Protocol capability), 32-bit addressing for the A55 stand-in, 32-byte contexts, no scratchpad,
@@ -70,6 +70,64 @@ returns 0, and the class reset is supported. The 64 MiB store is zeroed at boot.
 
 `vxhci null on` skips the copy between the store and the host buffer, so only the protocol path
 is measured.
+
+## UAS (USB Attached SCSI) and streams
+
+The drive has two interface settings: alt 0 is bulk-only transport (one command at a time,
+Linux `usb-storage`) and alt 1 is UAS (protocol 0x62, Linux `uas`). The UAS setting has four
+pipes: command (0x04), status (0x83), data-in (0x81) and data-out (0x02), each with a pipe usage
+descriptor. The status and data pipes advertise 32 streams, and stream ID = command tag. Linux
+picks `uas`, allocates 32 streams per endpoint, and runs a SCSI queue depth of 30.
+
+On the controller side (`vxhci.c`):
+
+- HCCPARAMS1.MaxPSASize = 5 (64-entry linear primary stream arrays, no secondary arrays). Linux
+  needs at least 4 before it sets `can_do_streams`. A Configure Endpoint with MaxPStreams/LSA
+  gets one of 4 stream pools. A stream's ring state is read from its stream context on first
+  use. Set TR Dequeue, Stop Endpoint and halts update the stream context, not the endpoint
+  context.
+- **Lost doorbells.** There is one doorbell register per slot, and UAS rings status, data and
+  command for each command back to back. A poll sees only the last value, so the design never
+  relies on seeing every doorbell:
+  - Any doorbell to a slot sweeps the slot: it checks every running endpoint without streams
+    (one 16-byte TRB read) and re-arms parked streams.
+  - The device signals stream readiness itself (`vxhci_stream_ready`, like a USB 3 ERDY). The
+    drive calls it when a tag's data or status stream has something to move.
+  - A Stopped endpoint restarts on the sweep once the host has consumed the completion event of
+    its last Stop/Set TR Dequeue/Reset Endpoint command and no command is pending. Linux rings
+    the endpoint doorbells only after that, and those can be lost too.
+  - A slow sweep every 5 ms covers a doorbell written between the poll's read and its reset of
+    the register.
+- **Parking:** a stream TRB the device can't serve yet (its command hasn't arrived) is parked.
+  It costs nothing per poll and blocks no other stream, and progress on the device re-arms it.
+- **USBCMD** is written back only for bits the controller changes (CSS/CRS). An earlier
+  write-back could overwrite Linux's RS write that came right after INTE ("Host took too long
+  to start").
+
+`vxhci eps` on the M7 dumps every endpoint, ring and stream, plus the drive's per-tag state.
+To force bulk-only for comparison, run `echo 1209:0003:u > /sys/module/usb_storage/parameters/quirks`
+on Linux, then `vxhci unplug` and `vxhci plug` on the M7.
+
+Measured on the same build, parallel `dd` jobs with `O_DIRECT` on separate regions
+(`pbench`), 0 Linux error recoveries:
+
+| Test | Bulk-only | UAS | M7 work (UAS) | cycles/TRB (UAS) |
+|---|---|---|---|---|
+| null read, 1 job × 1 MiB | 317 MB/s | 510 MB/s | 10.5 % | 662 |
+| null read, 4 jobs × 1 MiB | 436 MB/s | 690 MB/s | 14.5 % | 668 |
+| null read, 8 jobs × 64 KiB | 261 MB/s | 525 MB/s | 23.0 % | 1,267 |
+| null write, 1 job × 1 MiB | 328 MB/s | 450 MB/s | 10.2 % | 709 |
+| null write, 4 jobs × 1 MiB | 489 MB/s | 800 MB/s | 16.9 % | 673 |
+| RAM read, 1 job × 1 MiB | 95 MB/s | 116 MB/s | 80 % | 22,126 |
+| RAM read, 4 jobs × 1 MiB | 101 MB/s | 123 MB/s | 84 % | 21,938 |
+| RAM write, 4 jobs × 1 MiB | 63 MB/s | 74 MB/s | 95 % | 40,172 |
+
+- UAS's gain comes from overlapping commands; the M7 cost per TRB is unchanged (about 670
+  cycles, an M7-bound ideal of about 40 Gbit/s). With the null drive, Linux now reaches
+  690-800 MB/s, with the A55 at 50-70 % of six cores (swiotlb bouncing and the block layer).
+- With the RAM drive the M7 copy is the limit (84-95 % M7). UAS takes it from about 65-80 % to
+  about 85-95 % utilisation, and the ceiling is still about 147 MB/s read and 80 MB/s write
+  (faster copies are on the to-do list).
 
 ## Measured (2026-11-19)
 

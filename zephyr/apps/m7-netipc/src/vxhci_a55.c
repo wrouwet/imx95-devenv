@@ -103,10 +103,15 @@ static int cmd_status(const struct shell *sh, size_t argc, char **argv)
 	shell_print(sh, "IMAN 0x%08x IMOD 0x%08x ERSTSZ %u ERSTBA 0x%08x ERDP 0x%08x", r[0x620 / 4],
 		    r[0x624 / 4], r[0x628 / 4], r[0x630 / 4], r[0x638 / 4]);
 	shell_print(sh, "polls %u, doorbells %u, commands %u, TRBs %u, events %u, irqs %u, "
-		    "NAKs %u, errors %u, %llu bytes", s.polls, s.doorbells, s.commands, s.trbs,
-		    s.events, s.irqs, s.naks, s.errors, s.bytes);
-	shell_print(sh, "drive: %u MiB at 0x%08x, %s", (uint32_t)(DRIVE_SIZE >> 20),
-		    (uint32_t)DRIVE_BASE, vxhci_drive_null() ? "null mode (no data copy)" : "RAM");
+		    "NAKs %u, errors %u, endpoint stops %u, %llu bytes", s.polls, s.doorbells, s.commands,
+		    s.trbs, s.events, s.irqs, s.naks, s.errors, s.stops, s.bytes);
+	struct vxhci_drive_stats ds;
+
+	vxhci_drive_get_stats(&ds);
+	shell_print(sh, "drive: %u MiB at 0x%08x, %s, %s, %u commands, %u in flight (max %u)",
+		    (uint32_t)(DRIVE_SIZE >> 20), (uint32_t)DRIVE_BASE,
+		    vxhci_drive_null() ? "null mode (no data copy)" : "RAM",
+		    ds.uas ? "UAS" : "bulk-only", ds.commands, ds.inflight, ds.max_inflight);
 	return 0;
 }
 
@@ -139,6 +144,11 @@ static int cmd_perf(const struct shell *sh, size_t argc, char **argv)
 	uint64_t idle = c1.idle_cycles - c0.idle_cycles;
 	uint32_t trbs = b.trbs - a.trbs;
 
+	struct vxhci_drive_stats ds;
+
+	vxhci_drive_get_stats(&ds);
+	shell_print(sh, "drive: %s, max %u commands in flight", ds.uas ? "UAS" : "bulk-only",
+		    ds.max_inflight);
 	shell_print(sh, "%u s: %llu bytes (%llu KB/s), %u TRBs, %u doorbells, %u events, %u irqs",
 		    secs, bytes, bytes / secs / 1000, trbs, b.doorbells - a.doorbells,
 		    b.events - a.events, b.irqs - a.irqs);
@@ -156,6 +166,22 @@ static int cmd_perf(const struct shell *sh, size_t argc, char **argv)
 
 		shell_print(sh, "cost %llu.%02llu cycles/byte -> data rate at 100 %% M7 work: %llu Mbit/s",
 			    cpb100 / 100, cpb100 % 100, cpb100 ? cpu_hz * 8 * 100 / cpb100 / 1000000 : 0);
+	}
+	return 0;
+}
+
+static int cmd_eps(const struct shell *sh, size_t argc, char **argv)
+{
+	static char buf[4096];
+	char *line, *save;
+
+	vxhci_dump(buf, sizeof(buf));
+	for (line = strtok_r(buf, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
+		shell_print(sh, "%s", line);
+	}
+	vxhci_drive_dump(buf, sizeof(buf));
+	for (line = strtok_r(buf, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
+		shell_print(sh, "%s", line);
 	}
 	return 0;
 }
@@ -192,6 +218,7 @@ static int cmd_unplug(const struct shell *sh, size_t argc, char **argv)
 SHELL_STATIC_SUBCMD_SET_CREATE(vxhci_cmds,
 	SHELL_CMD(status, NULL, "registers, state and counters", cmd_status),
 	SHELL_CMD_ARG(perf, NULL, "[seconds] throughput and M7 load", cmd_perf, 1, 1),
+	SHELL_CMD(eps, NULL, "endpoints, rings, streams and drive commands (diagnostics)", cmd_eps),
 	SHELL_CMD(plug, NULL, "attach the virtual USB 3.0 drive (port 1)", cmd_plug),
 	SHELL_CMD(unplug, NULL, "detach it", cmd_unplug),
 	SHELL_CMD_ARG(null, NULL, "[on|off] drive without data copy (protocol cost only)",

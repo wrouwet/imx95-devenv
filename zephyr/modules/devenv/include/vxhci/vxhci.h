@@ -43,6 +43,7 @@ struct vxhci_data {
 	uint64_t host;		/* host bus address */
 	uint32_t len;		/* bytes the TRB offers */
 	uint32_t actual;	/* out: bytes transferred */
+	bool td_end;		/* last TRB of the host's TD (transfer) */
 };
 
 int vxhci_data_read(const struct vxhci_data *d, uint32_t off, void *dst, uint32_t n);
@@ -57,12 +58,13 @@ struct vxhci_device_ops {
 	 */
 	int (*control)(void *ctx, const uint8_t setup[8], uint8_t *buf, uint16_t *len);
 	/*
-	 * Bulk/interrupt TRB on endpoint @ep (1-15), direction @in; set
-	 * d->actual (less than d->len on IN = short packet). Return 0,
-	 * -EAGAIN (nothing to send/accept now: retried later), -EPIPE (STALL),
-	 * or another negative errno (transaction error).
+	 * Bulk/interrupt TRB on endpoint @ep (1-15), direction @in, stream
+	 * @stream (0 without streams); set d->actual (less than d->len on IN =
+	 * short packet). Return 0, -EAGAIN (nothing to send/accept now: retried
+	 * later; a stream is retried once the device made progress), -EPIPE
+	 * (STALL), or another negative errno (transaction error).
 	 */
-	int (*transfer)(void *ctx, uint8_t ep, bool in, struct vxhci_data *d);
+	int (*transfer)(void *ctx, uint8_t ep, bool in, uint16_t stream, struct vxhci_data *d);
 	/* Port reset or Reset Device: back to the default state */
 	void (*reset)(void *ctx);
 };
@@ -79,6 +81,14 @@ struct vxhci_transport {
 
 int vxhci_start(const struct vxhci_transport *t);
 
+/*
+ * For devices, from their callbacks: stream @stream of endpoint @ep (direction
+ * @in) now has something to move (USB 3 ERDY). Stream doorbells of the host
+ * may be lost (one doorbell register per slot), so a device with streams
+ * signals readiness itself.
+ */
+void vxhci_stream_ready(void *dev_ctx, uint8_t ep, bool in, uint16_t stream);
+
 /* Attach/detach a device on port 1 (USB 3) or 2 (USB 2) */
 int vxhci_port_attach(int port, const struct vxhci_device_ops *ops, void *ctx,
 		      enum vxhci_speed speed);
@@ -93,21 +103,33 @@ struct vxhci_stats {
 	uint32_t doorbells;
 	uint32_t naks;
 	uint32_t errors;
+	uint32_t stops;		/* Stop Endpoint commands */
 	uint64_t bytes;
 	uint64_t work_cycles;	/* polls that did something */
 	uint64_t poll_cycles;
 };
 
 void vxhci_get_stats(struct vxhci_stats *s);
+size_t vxhci_dump(char *buf, size_t len);	/* diagnostics: rings and streams */
 void vxhci_set_adaptive(bool adaptive);
 bool vxhci_adaptive(void);
 const char *vxhci_state(void);
 
-/* Built-in virtual USB 3.0 drive (mass storage, bulk-only, RAM backed) */
+/* Built-in virtual USB 3.0 drive (mass storage: bulk-only and UAS, RAM backed) */
 extern const struct vxhci_device_ops vxhci_drive_ops;
 void *vxhci_drive_init(void *storage, size_t size);
 /* null mode: no data copy (benchmarks the protocol path only) */
 void vxhci_drive_set_null(bool null);
 bool vxhci_drive_null(void);
+
+struct vxhci_drive_stats {
+	bool uas;		/* UAS interface selected (else bulk-only) */
+	uint32_t commands;
+	uint32_t inflight;
+	uint32_t max_inflight;	/* since the last call */
+};
+
+void vxhci_drive_get_stats(struct vxhci_drive_stats *st);
+size_t vxhci_drive_dump(char *buf, size_t len);
 
 #endif /* VXHCI_VXHCI_H_ */
