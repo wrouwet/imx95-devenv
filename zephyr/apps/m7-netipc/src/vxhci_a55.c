@@ -1,6 +1,6 @@
 /*
  * Virtual xHCI ("Wimmo", modules/devenv subsys/vxhci) for Linux on the A55,
- * with the virtual USB 3 drive on its SuperSpeed port.
+ * with the virtual USB 3.0 drive on its SuperSpeed port.
  *
  * Transport for the A55 stand-in of the later PCIe host:
  *  - registers: the second 4 KiB of the m7shm window (DTCM 0x20021000, Linux
@@ -192,7 +192,7 @@ static int cmd_unplug(const struct shell *sh, size_t argc, char **argv)
 SHELL_STATIC_SUBCMD_SET_CREATE(vxhci_cmds,
 	SHELL_CMD(status, NULL, "registers, state and counters", cmd_status),
 	SHELL_CMD_ARG(perf, NULL, "[seconds] throughput and M7 load", cmd_perf, 1, 1),
-	SHELL_CMD(plug, NULL, "attach the virtual USB 3 drive (port 1)", cmd_plug),
+	SHELL_CMD(plug, NULL, "attach the virtual USB 3.0 drive (port 1)", cmd_plug),
 	SHELL_CMD(unplug, NULL, "detach it", cmd_unplug),
 	SHELL_CMD_ARG(null, NULL, "[on|off] drive without data copy (protocol cost only)",
 		      cmd_null, 1, 1),

@@ -82,7 +82,7 @@
 
 		/*
 		 * "Wimmo" virtual xHCI, emulated by the M7 in the second 4 KiB of
-		 * the m7shm window, with a virtual USB 3 drive on its SuperSpeed
+		 * the m7shm window, with a virtual USB 3.0 drive on its SuperSpeed
 		 * port. Linux's stock xhci-plat (driver "xhci-hcd") drives it,
 		 * bound by m7-vehci like the EHCI above. It shares MSGINTR1 (SPI
 		 * 236) with the virtual EHCI: both drivers request it shared, and

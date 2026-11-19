@@ -1,4 +1,4 @@
-# Wimmo virtual xHCI and virtual USB 3 drive
+# Wimmo virtual xHCI and virtual USB 3.0 drive
 
 The M7 emulates an xHCI host controller with a SuperSpeed mass-storage device behind it. Linux
 on the A55 drives both with its stock drivers: `xhci-plat` (driver `xhci-hcd`), `usb-storage`
@@ -21,7 +21,7 @@ in Linux DDR                          vxhci_drive.c: SuperSpeed BOT/SCSI drive, 
 | | |
 |---|---|
 | Core | `zephyr/modules/devenv/subsys/vxhci/vxhci.c`, API `include/vxhci/vxhci.h` |
-| Drive | `zephyr/modules/devenv/subsys/vxhci/vxhci_drive.c` (1209:0003, "Wimmo Virtual USB 3 drive") |
+| Drive | `zephyr/modules/devenv/subsys/vxhci/vxhci_drive.c` (1209:0003, "Wimmo Virtual USB 3.0 drive") |
 | A55 transport and shell | `zephyr/apps/m7-netipc/src/vxhci_a55.c`, shared IRQ `src/a55_irq.c` |
 | Registers | second 4 KiB of the m7shm window: M7 0x20021000, Linux 0x20421000 |
 | Drive store | M7 DDR 0x83000000, 64 MiB (`vxhci_drive` region in the overlay; cached on the M7, outside Linux RAM) |
@@ -62,7 +62,7 @@ and an ERST of up to 16 segments.
 
 ## Virtual drive
 
-The drive is a SuperSpeed device (bcdUSB 3.20, EP0 512 bytes, bulk 1024 bytes with burst 16)
+The drive is a SuperSpeed device (bcdUSB 3.00, EP0 512 bytes, bulk 1024 bytes with burst 16)
 with a BOS descriptor that has no U1/U2. It uses bulk-only transport with SCSI: INQUIRY (with
 VPD pages 0 and 0x80), READ CAPACITY 10/16, READ/WRITE 10/12/16, MODE SENSE 6/10, REQUEST
 SENSE, TEST UNIT READY and the no-data commands. Each bulk TRB is served at once. Get Max LUN
@@ -73,30 +73,34 @@ is measured.
 
 ## Measured (2026-11-19)
 
-Linux `dd` with `O_DIRECT` and 1 MiB requests on the drive. The M7 numbers come from
-`vxhci perf 5` (cycles of polls that did work, DWT). Data was verified with 48 MiB of random data
-written and read back, identical.
+Linux `dd` with `O_DIRECT` on the drive for about 10 s per case. M7 numbers come from `vxhci perf 5`
+(cycles of polls that did work, DWT); the A55 load comes from `/proc/stat`. Data was verified
+with 48 MiB of random data written and read back, identical.
 
-| Test | Linux | M7 work | M7 cost | M7-bound ideal |
-|---|---|---|---|---|
-| Read, RAM drive | 96 MB/s | 64 % | 5.45 cycles/B, 21,900 cycles per 4 KiB TRB | ~1.2 Gbit/s |
-| Write, RAM drive | 59 MB/s | 76 % | 10 cycles/B | ~0.64 Gbit/s |
-| Read, null drive | 382 MB/s | 5.9 % | 0.12 cycles/B, 628 cycles/TRB | ~53 Gbit/s |
-| Write, null drive | 346 MB/s | 6.6 % | 0.15 cycles/B, 658 cycles/TRB | ~43 Gbit/s |
-| Virtual EHCI + physical stick, for comparison | 16 MB/s | 10 % | 4.8 cycles/B, 18,000 cycles/stage | ~1.3 Gbit/s |
+| Test | Linux | M7 work | cycles/B | cycles/TRB | M7-bound ideal | A55 busy (6 cores) |
+|---|---|---|---|---|---|---|
+| read 1 MiB, RAM | 96 MB/s | 64.7 % | 5.44 | 23,452 | 1.18 Gbit/s | 8 % |
+| read 64 KiB, RAM | 79 MB/s | 56.1 % | 5.58 | 20,317 | 1.15 Gbit/s | 9 % |
+| write 1 MiB, RAM | 59 MB/s | 76.2 % | 9.96 | 47,715 | 0.64 Gbit/s | 8 % |
+| write 64 KiB, RAM | 52 MB/s | 67.5 % | 10.07 | 41,083 | 0.64 Gbit/s | 8 % |
+| read 1 MiB, null | 342 MB/s | 6.2 % | 0.14 | 603 | 45.7 Gbit/s | 18 % |
+| read 64 KiB, null | 175 MB/s | 5.2 % | 0.24 | 876 | 26.7 Gbit/s | 16 % |
+| write 1 MiB, null | 346 MB/s | 6.1 % | 0.13 | 687 | 49.2 Gbit/s | 23 % |
+| write 64 KiB, null | 186 MB/s | 5.8 % | 0.25 | 903 | 25.6 Gbit/s | 18 % |
+| no I/O | - | 0 % (core 98.9 % idle) | | | | |
+| vEHCI + physical stick, for comparison | 16 MB/s | 10 % | 4.8 | 18,000 per stage | 1.3 Gbit/s | |
 
-"M7-bound ideal" is what the data rate would be if the M7 were the only limit.
+"M7-bound ideal" is the data rate if the M7 ran at 100 % and nothing else were a limit. The
+plain-text report is on the .224 PC: `~/imx95-work/reports/wimmo-vxhci-benchmark.txt`.
 
-- The xHCI protocol cost is about **29× lower per descriptor** than EHCI's (628 against 18,000
-  cycles). That's because of doorbells (no schedule walking), contiguous TRBs, a single 16-byte
-  event per completion, and no QH overlay or qTD token write-back.
+- The xHCI protocol cost is about **25-30× lower per descriptor** than EHCI's (600-900 against
+  18,000 cycles). That's because of doorbells (no schedule walking), contiguous TRBs, a single
+  16-byte event per completion, and no QH overlay or qTD token write-back.
 - **RAM drive:** the cost is the M7 copying data between its cached store and Linux's
-  uncached DDR, at about 150–190 MB/s (writes are slower because uncached reads from Linux DDR
-  stall). On PCIe the endpoint's DMA engine would do this copy. On the A55 stand-in, an M7-side
-  DMA engine, or cacheable access with explicit cache maintenance, could replace `memcpy`.
-- **Null drive:** the M7 is about 94 % free; the limit is on the Linux side. Every byte is
-  bounced through swiotlb (32-bit DMA window, as with the EHCI), and bulk-only transport runs
-  one command at a time (CBW, data, CSW, one interrupt each).
+  uncached DDR: about 150 MB/s for reads and 80 MB/s for writes (the M7 stalls on every
+  uncached read). On PCIe the endpoint's DMA engine would do this copy. On the A55 stand-in, an
+  M7-side DMA engine or cached access could replace `memcpy` (on the to-do list).
+- **Null drive:** the limit is Linux, at one A55 core saturated. It copies every byte through
+  swiotlb (32-bit DMA window, as with the EHCI), and bulk-only transport runs one command at a
+  time (CBW, data, CSW, one interrupt each), so 64 KiB requests reach about half the 1 MiB rate.
 - TRBs average about 4 KiB, because Linux's scatter-gather segments are single pages (swiotlb).
-- 1 interrupt per event: bulk-only transport is serial, so IMOD (40 µs) has nothing to
-  coalesce.

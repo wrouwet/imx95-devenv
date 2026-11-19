@@ -254,8 +254,11 @@ The board's eMMC has the first image plus fixes copied by hand; the repo has all
    USB2: HID class on the M7 (keyboard/mouse reports), M7-side SCMI for PD_HSIO_TOP/clock
    (needed once USB1 also leaves Linux), then USB3/USB1 to the M7 (user's next goal). Build a
    Yocto image with the SM/U-Boot/dts changes and compare with the hand-made boot image.
-5. M7 DHCP on a real LAN (so far only link-local on a direct laptop cable).
-6. Nice to have: an `rpmsg_char` example on Linux; VLAN/PTP for the M7 VF; an iperf server on the M7;
+5. Later (user, 2026-11-19: "skip for now"): faster virtual-drive data copies for the vxHCI
+   (M7 DMA engine, or cacheable access to Linux DDR with explicit cache maintenance, instead of
+   memcpy into uncached memory; today ~150-190 MB/s and the RAM drive's limit). Also UAS.
+6. M7 DHCP on a real LAN (so far only link-local on a direct laptop cable).
+7. Nice to have: an `rpmsg_char` example on Linux; VLAN/PTP for the M7 VF; an iperf server on the M7;
    a smaller terminal font on HDMI if the user wants it.
 
 ## Commands

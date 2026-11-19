@@ -33,7 +33,7 @@ config APP_VEHCI_TESTDEV
 	depends on APP_VEHCI && !APP_VEHCI_XLAT
 
 config APP_VXHCI
-	bool "Wimmo virtual xHCI with a virtual USB 3 drive, for Linux on the A55"
+	bool "Wimmo virtual xHCI with a virtual USB 3.0 drive, for Linux on the A55"
 	default y
 	select VXHCI
 	help

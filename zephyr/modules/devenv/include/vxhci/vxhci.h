@@ -103,7 +103,7 @@ void vxhci_set_adaptive(bool adaptive);
 bool vxhci_adaptive(void);
 const char *vxhci_state(void);
 
-/* Built-in virtual USB 3 drive (mass storage, bulk-only, RAM backed) */
+/* Built-in virtual USB 3.0 drive (mass storage, bulk-only, RAM backed) */
 extern const struct vxhci_device_ops vxhci_drive_ops;
 void *vxhci_drive_init(void *storage, size_t size);
 /* null mode: no data copy (benchmarks the protocol path only) */

@@ -1,5 +1,5 @@
 /*
- * Virtual USB 3 drive behind the Wimmo virtual xHCI: a SuperSpeed mass
+ * Virtual USB 3.0 drive behind the Wimmo virtual xHCI: a SuperSpeed mass
  * storage device (1209:0003, bulk-only transport, SCSI transparent command
  * set) backed by M7 memory.
  *
@@ -37,7 +37,7 @@ enum bot_state { BOT_CBW, BOT_DATA_IN, BOT_DATA_OUT, BOT_CSW, BOT_HALTED };
 
 static const uint8_t dev_desc[18] = {
 	18, 1,			/* bLength, DEVICE */
-	0x20, 0x03,		/* bcdUSB 3.2 */
+	0x00, 0x03,		/* bcdUSB 3.0 */
 	0, 0, 0,		/* class per interface */
 	9,			/* bMaxPacketSize0: 2^9 = 512 */
 	0x09, 0x12,		/* idVendor 0x1209 (pid.codes) */
@@ -62,7 +62,7 @@ static const uint8_t bos_desc[22] = {
 	10, 16, 3, 0, 0x0e, 0x00, 1, 0, 0, 0,	/* SuperSpeed: FS/HS/SS, no U1/U2 */
 };
 
-static const char *const strings[] = {NULL, "Wimmo", "Virtual USB 3 drive", "WIMMO0000003"};
+static const char *const strings[] = {NULL, "Wimmo", "Virtual USB 3.0 drive", "WIMMO0000003"};
 
 static struct drive {
 	uint8_t *store;
@@ -293,7 +293,7 @@ static void scsi(const uint8_t *cdb)
 		r[3] = 0x02;		/* response data format */
 		r[4] = 31;
 		memcpy(&r[8], "Wimmo   ", 8);
-		memcpy(&r[16], "Virtual USB3 Drv", 16);
+		memcpy(&r[16], "USB 3.0 Drive   ", 16);
 		memcpy(&r[32], "0100", 4);
 		data_in(r, MIN(36, sys_get_be16(&cdb[3])));
 		break;

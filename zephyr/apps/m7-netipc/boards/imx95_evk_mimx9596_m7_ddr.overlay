@@ -78,7 +78,7 @@
 	 * ARMv7-M MPU regions: power-of-two sizes, aligned.
 	 */
 	/*
-	 * Backing store of the virtual USB 3 drive (src/vxhci_a55.c): M7 DDR
+	 * Backing store of the virtual USB 3.0 drive (src/vxhci_a55.c): M7 DDR
 	 * above the image, inside Linux's m7 reservation window but outside
 	 * Linux RAM (which starts at 0x90000000). Cached: only the M7 uses it.
 	 */
