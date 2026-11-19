@@ -21,6 +21,54 @@
 			no-map;
 		};
 	};
+
+	/*
+	 * Memory window shared with the M7: the upper 128 KiB of the M7 DTCM
+	 * (M7 view 0x20020000, A55 view 0x20400000 + 128 KiB). Driver: m7shm.ko
+	 * (linux/m7shm, /dev/m7shm). The Zephyr overlay has the M7 side; keep
+	 * both in sync. TCM is not Linux RAM, so no reserved-memory entry.
+	 */
+	m7_shm: m7-shm@20420000 {
+		compatible = "devenv,imx95-m7shm";
+		reg = <0 0x20420000 0 0x20000>;
+		devenv,m7-addr = <0x20020000>;
+		devenv,rproc = <&cm7>;
+	};
+
+	/*
+	 * USB2 (ChipIdea, Type-A port) belongs to the M7 (SM config mx95devenv:
+	 * USB2 in LM1, so any A55 access faults). Linux has no USB2 node at all;
+	 * this node only describes the controller's DMA stream (SID 0xf) so the
+	 * SMMU knows it. No driver binds; m7-dma-handoff sets its IOMMU group to
+	 * identity before the M7 starts, so the M7's USB DMA reaches its memory.
+	 */
+	m7-usb2-dma {
+		compatible = "devenv,m7-dma-master";
+		iommus = <&smmu 0xf>;
+	};
+};
+
+/* Owned by the M7, see m7-usb2-dma above */
+&usb2 {
+	status = "disabled";
+};
+
+&usbmisc {
+	status = "disabled";
+};
+
+&usbphynop {
+	status = "disabled";
+};
+
+/*
+ * VBUS of the USB2 Type-A port (GPIO expander on I2C7, owned by Linux). With
+ * USB2 gone from Linux nothing would consume this regulator and Linux would
+ * switch the port's 5 V off at boot; keep it on for the M7's USB host.
+ */
+&reg_usb_vbus {
+	regulator-always-on;
+	regulator-boot-on;
 };
 
 &cm7 {

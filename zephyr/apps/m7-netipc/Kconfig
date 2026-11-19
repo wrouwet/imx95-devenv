@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: Apache-2.0
+mainmenu "m7-netipc"
+
+config APP_USB2_AUTOSTART
+	bool "Start the USB2 host at boot"
+	default y
+	depends on USB_HOST_STACK
+	help
+	  Needs the M7 to own USB2 (SM config mx95devenv with USB2 in LM1);
+	  otherwise the first register access is a bus fault. Without it,
+	  start the host with the "usb2 start" shell command.
+
+source "Kconfig.zephyr"

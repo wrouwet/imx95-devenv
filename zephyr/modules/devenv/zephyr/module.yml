@@ -1,0 +1,9 @@
+# imx95-devenv Zephyr module: drivers that are not (and need not be) in the
+# Zephyr tree. Added to builds through ZEPHYR_EXTRA_MODULES (see the app's
+# CMakeLists.txt).
+name: devenv
+build:
+  cmake: .
+  kconfig: Kconfig
+  settings:
+    dts_root: .

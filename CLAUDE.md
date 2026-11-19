@@ -6,7 +6,29 @@ work out from the files: current status, decisions and the reasons for them, got
 ## Status (keep this section current)
 
 <!-- STATUS-START -->
-- Last updated: 2026-11-17 by Claude (L2 reflector session)
+- Last updated: 2026-11-19 by Claude (m7shm + USB2 session, on the 192.168.1.224 PC, see "Where things live")
+- **USB2 belongs to the M7 (2026-11-19, verified on hardware from a cold eMMC boot):** SM cfg moves
+  `USB2` to LM1; Linux dts has no USB2 (only `m7-usb2-dma` for SMMU stream 0xf, made identity by
+  the new `m7-dma-handoff.service`) and keeps `reg_usb_vbus` on; U-Boot bootcmd without `bootflow
+  scan` (it probed USB2 and crashed). Zephyr EHCI host driver `zephyr/modules/devenv`
+  (uhc_ci_ehci) + usbh hub class: enumerates FS hub, LS mouse behind it, FS keyboard; hot-plug OK.
+  docs/m7-usb2.md. **The eMMC boot image was built OUTSIDE Yocto**: SM rebuilt with Arm GNU 15.2.rel1
+  and swapped into the old image, U-Boot default bootcmd byte-patched (scripts/bootimg). The repo
+  has the source equivalents (SM cfg, u-boot `devenv-fdt.cfg`, dts, m7-tools) but no Yocto build
+  of them yet. On the board by hand: dtb with all overlays (m7shm, USB2 off, VBUS always-on;
+  original `.dtb.orig`), `/usr/sbin/m7-dma-handoff` + service, `/etc/default/m7`
+  M7_FIRMWARE=m7-netipc-usb2.elf. Original boot area backup on that PC:
+  `~/imx95-work/boot-backup/emmc-32k-8m.bin` (crc32 e4a56726).
+- **M7 memory window (m7shm, 2026-11-19, verified on hardware):** upper 128 KiB of M7 DTCM
+  (M7 0x20020000 = A55 0x20420000), plain memory, no doorbells/protocol yet (user: descriptor ring
+  comes later, eventually from an external PCIe host). `linux/m7shm` (m7shm.ko, /dev/m7shm,
+  in-kernel API, m7shm-tool), Zephyr `src/shm.c` + `shm` shell, DT node in the devenv dts.
+  Cross-core fill/check OK both ways; M7 stop under a live mapping gives SIGBUS, no SError.
+  A55 reads ~128 ns/word, writes posted. docs/m7shm.md. On the board NOW (not in an image):
+  the adv7535 dtb on mmcblk0p1 has the node added by fdtoverlay (original saved as
+  `imx95-19x19-evk-devenv-adv7535.dtb.orig`), m7shm.ko built in /root/m7shm (insmod by hand, not
+  autoloaded), firmware `/lib/firmware/m7-netipc-m7shm.elf` loaded by hand (autostart default is
+  still the old ELF). No Yocto recipe for m7shm yet.
 - **Board runs the image from eMMC (SW7=1010, normal boot), verified on hardware:**
   U-Boot picks `imx95-19x19-evk-devenv-adv7535.dtb`, Linux 6.18 boots with no failed units,
   serial autologin, rootfs-grow (59 GiB), key-only SSH (password refused), M7 auto-started by
@@ -87,6 +109,14 @@ Possible slimming later: target `qemu` and Xen/jailhouse bits come from NXP `MAC
 
 ## Where things live (host)
 
+- Since 2026-11-19 the board is on a second PC (192.168.1.224); the T480 is not at hand. There:
+  repo `~/imx95-workspace/imx95-devenv`, Zephyr workspace `~/imx95-work/zephyr-ws` set up natively
+  (no podman on that PC; python3-venv works), board SSH key `~/imx95-work/ssh/id_ed25519` (its own key,
+  added by hand to the board's authorized_keys; an image built on the T480 only has the T480 key),
+  `~/.config/imx95-devenv/board.conf` = USB NCM 192.168.95.2. Kernel modules are built on the board
+  (see docs/m7shm.md for the one-time `modules_prepare` + release-string fix). The board has no RTC
+  sync: set its clock (`date -s`) before builds.
+
 - Repo: `~/imx95-devenv` (GitHub: `wrouwet/imx95-devenv`, **public**). Commit identity is
   set repo-locally to the GitHub noreply address. Don't use the user's personal email.
 - Work dir (not in git): `~/imx95-work/`
@@ -139,6 +169,15 @@ Possible slimming later: target `qemu` and Xen/jailhouse bits come from NXP `MAC
 
 ## Gotchas
 
+- **SM builds need Arm GNU Toolchain 15.2.rel1.** Ubuntu's gcc-arm-none-eabi 14.2 builds an SM
+  that boot-loops right after the OEI (no "Hello from SM").
+- A Linux or U-Boot `reset` only restarts the A55 LM; the SM keeps running its old config. A new
+  SM (and a new SW7 setting) needs a power cycle. The SM debug monitor (SM UART) has
+  `lm ap reset`.
+- USB2 now faults on any A55 access: no `usb start`/`bootflow scan` in U-Boot, no USB2 node in
+  Linux. Linux's `dmesg` won't show it; U-Boot dies with a synchronous abort at `0x4c200000`.
+- The A55 must not touch the M7's DDR (0x80000000-0x89FFFFFF): in U-Boot that caused a POR.
+
 - An i.MX95 silicon revision mismatch shows up as "no U-Boot output at all". Read
   `docs/silicon-revision.md` before debugging anything else on a dead board.
 - A saved U-Boot environment on the board (e.g. from the factory image) overrides ALL default-env
@@ -189,8 +228,12 @@ The board's eMMC has the first image plus fixes copied by hand; the repo has all
 3. Reflector: get numbers (RT1060 peer and/or `host/l2rtt`), then stage 2 (busy-poll the VSI
    rings without the Zephyr stack, zero-copy, buffers in OCRAM/TCM; see docs/reflector.md). Rebuild
    the image so the fixed VF_MAC handoff and the new firmware become the defaults.
-4. M7 DHCP on a real LAN (so far only link-local on a direct laptop cable).
-5. Nice to have: an `rpmsg_char` example on Linux; VLAN/PTP for the M7 VF; an iperf server on the M7;
+4. m7shm: Yocto recipe (module + tool, autoload), then the user's descriptor ring on top.
+   USB2: HID class on the M7 (keyboard/mouse reports), M7-side SCMI for PD_HSIO_TOP/clock
+   (needed once USB1 also leaves Linux), then USB3/USB1 to the M7 (user's next goal). Build a
+   Yocto image with the SM/U-Boot/dts changes and compare with the hand-made boot image.
+5. M7 DHCP on a real LAN (so far only link-local on a direct laptop cable).
+6. Nice to have: an `rpmsg_char` example on Linux; VLAN/PTP for the M7 VF; an iperf server on the M7;
    a smaller terminal font on HDMI if the user wants it.
 
 ## Commands

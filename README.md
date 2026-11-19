@@ -50,6 +50,8 @@ A development environment for the **NXP i.MX95 19x19 LPDDR5 EVK** (board code
 | [docs/getting-started.md](docs/getting-started.md) | The whole flow once: build, flash, first boot, daily loop |
 | [docs/architecture.md](docs/architecture.md) | How it fits together and why: SM config, device tree, remoteproc, RPMsg, consoles |
 | [docs/m7-development.md](docs/m7-development.md) | Zephyr workflow (PC and on-board), memory map, adding RPMsg channels, debugging |
+| [docs/m7-usb2.md](docs/m7-usb2.md) | USB2 owned by the M7: SM/U-Boot/Linux changes, the Zephyr EHCI host driver, console output, boot image built outside Yocto |
+| [docs/m7shm.md](docs/m7shm.md) | Memory window in the M7 DTCM shared with Linux: m7shm.ko, /dev/m7shm, M7 shell, measurements |
 | [docs/ethernet.md](docs/ethernet.md) | The shared Ethernet port: data path, setup, tests, tweaks (VLAN, fixed MAC, other ports) |
 | [docs/yocto.md](docs/yocto.md) | Layer contents, rebuilding pieces, adding packages, SDK, disk/time |
 | [docs/flashing.md](docs/flashing.md) | Connectors, debug UARTs, uuu/SD flashing, HDMI, first-boot checklist |

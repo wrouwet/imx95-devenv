@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: Apache-2.0
+menu "imx95-devenv drivers"
+
+config UHC_CI_EHCI
+	bool "ChipIdea EHCI USB host controller (i.MX95 USB2)"
+	default y
+	depends on DT_HAS_DEVENV_CI_EHCI_ENABLED
+	depends on UHC_DRIVER
+	help
+	  EHCI host driver for the ChipIdea USB 2.0 controller with integrated
+	  transaction translator (i.MX95 USB2), written for imx95-devenv.
+	  Control, bulk and interrupt transfers; no isochronous.
+
+if UHC_CI_EHCI
+
+config UHC_CI_EHCI_THREAD_STACK_SIZE
+	int "Driver thread stack size"
+	default 2048
+
+config UHC_CI_EHCI_THREAD_PRIORITY
+	int "Driver thread priority"
+	default 2
+
+endif
+
+endmenu

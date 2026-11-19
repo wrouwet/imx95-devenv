@@ -36,6 +36,36 @@
 		mbox-names = "tx", "rx";
 		status = "okay";
 	};
+
+	/*
+	 * Memory window shared with Linux: the upper 128 KiB of DTCM. The DDR
+	 * board target puts nothing in DTCM (zephyr,sram = &ddr). Linux maps the
+	 * same memory at 0x20420000 (devenv dts m7-shm node, m7shm.ko); keep
+	 * both in sync.
+	 */
+	m7shm: m7shm@20020000 {
+		compatible = "devenv,imx95-m7shm";
+		reg = <0x20020000 DT_SIZE_K(128)>;
+	};
+
+	/*
+	 * USB2: ChipIdea EHCI host on the EVK Type-A port, owned by the M7 (SM
+	 * config mx95devenv: USB2 in LM1; Linux has no USB2 node). Driver:
+	 * modules/devenv uhc_ci_ehci. EHCI structures go in the first 32 KiB of
+	 * DTCM (never cached on the M7); the controller reaches DTCM at
+	 * 0x20400000 on the system bus, untranslated by the SMMU (m7-dma-handoff).
+	 */
+	usb2: zephyr_uhc0: usb@4c200000 {
+		compatible = "devenv,ci-ehci";
+		reg = <0x4c200000 0x200>, <0x4c200200 0x200>;
+		reg-names = "core", "usbnc";
+		interrupt-parent = <&nvic>;
+		interrupts = <176 0>;
+		devenv,pool = <0x20000000 DT_SIZE_K(32)>;
+		devenv,pool-bus-addr = <0x20400000>;
+		disable-over-current;
+		status = "okay";
+	};
 };
 
 &mu7 {

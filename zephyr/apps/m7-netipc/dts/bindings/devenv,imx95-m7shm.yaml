@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: Apache-2.0
+description: |
+  Memory window shared with Linux on the A55, in the M7 DTCM. Linux reaches
+  the same memory through the M7 system-bus slave port (DTCM 0x20000000 on the
+  M7 = 0x20400000 on the A55); its node is m7-shm@20420000 in the devenv dts.
+  The M7 zeroes the window at boot and otherwise does not use it.
+
+compatible: "devenv,imx95-m7shm"
+
+include: base.yaml
+
+properties:
+  reg:
+    required: true

@@ -1,0 +1,33 @@
+#!/bin/sh
+# m7-dma-handoff - let DMA masters owned by the M7 through the SMMU untranslated.
+#
+# Peripherals that belong to the M7 in the System Manager config (e.g. USB2) are
+# bus masters behind the A55's SMMU, which Linux owns. The SMMU blocks streams
+# Linux has not set up, so the M7's DMA would fault. The devenv dts describes each
+# such stream with a driverless node:
+#     m7-usb2-dma { compatible = "devenv,m7-dma-master"; iommus = <&smmu 0xf>; };
+# Linux gives that device an IOMMU group; this script switches the group to
+# "identity" (bus address = physical address), so the M7 can DMA to its memory.
+# Possible only while no driver is bound, which is always the case for these
+# nodes. Must run on every boot, before the M7 starts (m7-autostart).
+set -eu
+
+log() { echo "m7-dma-handoff: $*"; }
+rc=0
+found=0
+for d in /sys/bus/platform/devices/*; do
+	[ -r "$d/of_node/compatible" ] || continue
+	tr '\0' '\n' < "$d/of_node/compatible" | grep -qx 'devenv,m7-dma-master' || continue
+	found=$((found + 1))
+	name=$(basename "$d")
+	if [ ! -e "$d/iommu_group" ]; then
+		log "$name: no IOMMU group (SMMU not probed yet?)"; rc=1; continue
+	fi
+	g=$(readlink -f "$d/iommu_group")
+	if [ "$(cat "$g/type")" != identity ]; then
+		echo identity > "$g/type" || { log "$name: cannot set $(basename "$g") to identity"; rc=1; continue; }
+	fi
+	log "$name: IOMMU $(basename "$g") = $(cat "$g/type")"
+done
+[ "$found" -gt 0 ] || log "no devenv,m7-dma-master nodes in the device tree"
+exit $rc

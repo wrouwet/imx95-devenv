@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: Apache-2.0
+description: |
+  ChipIdea USB 2.0 controller in EHCI host mode with integrated transaction
+  translator (i.MX95 USB2). First reg entry: controller registers (ID at 0x000,
+  EHCI capability registers at 0x100). Second: the USB non-core block (USBNC).
+
+  EHCI data structures (frame list, queue heads, transfer descriptors) live in
+  a pool the controller can reach by DMA. On the i.MX95 M7 that is DTCM, which
+  is never cached on the M7; devenv,pool gives its M7 address and size and
+  devenv,pool-bus-addr where the controller sees it (DTCM on the system bus).
+
+compatible: "devenv,ci-ehci"
+
+include: [base.yaml]
+
+properties:
+  reg:
+    required: true
+
+  interrupts:
+    required: true
+
+  devenv,pool:
+    type: array
+    required: true
+    description: M7 address and size of the DMA pool for EHCI structures
+
+  devenv,pool-bus-addr:
+    type: int
+    required: true
+    description: address of the same pool as seen by the controller
+
+  disable-over-current:
+    type: boolean
+    description: ignore the over-current input (EVK Type-A port has none wired)

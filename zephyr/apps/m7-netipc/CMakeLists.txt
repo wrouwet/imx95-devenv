@@ -1,11 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 cmake_minimum_required(VERSION 3.20.0)
 
+# Out-of-tree drivers of this repo (USB2 EHCI host): zephyr/modules/devenv
+list(APPEND ZEPHYR_EXTRA_MODULES ${CMAKE_CURRENT_SOURCE_DIR}/../../modules/devenv)
+
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(m7_netipc)
 
 target_include_directories(app PRIVATE ${LIBMETAL_INCLUDE_DIR} ${OPENAMP_INCLUDE_DIR} ${PLATFORM_DIR})
-target_sources(app PRIVATE src/main.c src/rpmsg.c src/net.c src/reflector.c)
+target_sources(app PRIVATE src/main.c src/rpmsg.c src/net.c src/reflector.c src/shm.c src/usb.c)
 
 # Linux imx_rproc (fsl,imx95-cm7) takes the M7 boot address from an ELF section
 # named ".interrupts" (MCUXpresso SDK naming) and falls back to 0 (TCM) if there

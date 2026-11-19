@@ -23,6 +23,8 @@ NXP's `configs/other/mx95evkrpmsg.cfg` (imx-sm `lf-6.18.37-2.1.0`) plus a small 
 - Added: the M7 LM owns `NETC_VSI1` (ENETC0 VF1) and `NETC_LDID3` (that VF's MSI/stream ID,
   `sid=0x22`). It gets `READONLY` access to `NETC_ECAM` (to see the PF's SR-IOV VF-enable bits)
   and `NETC0` (ENETC0 capability registers). The AP LM loses `NETC_VSI1` and `NETC_LDID3`.
+- Added: the M7 LM owns `USB2` (ChipIdea EHCI, Type-A port, `sid=0xf`); the AP LM loses it.
+  configtool then also gives the M7 SCMI access to `PD_HSIO_TOP`. See [m7-usb2.md](m7-usb2.md).
 - The M7 already owns `MSGINTR1/2` in the stock config. The Zephyr NETC driver uses MSGINTR1
   for the VF's MSI-X interrupts.
 
@@ -83,6 +85,20 @@ exposes these endpoints:
 
 To add your own channel, create another endpoint in `src/rpmsg.c` and bind Linux to it with
 `rpmsg_char` (`/dev/rpmsg_ctrl0` → `rpmsg-export-ept`) or a small kernel driver.
+
+## USB2 on the M7
+
+USB2 belongs to the M7 (SM config). Linux has no USB2 node, only `m7-usb2-dma` for the SMMU stream
+(`m7-dma-handoff` makes it untranslated), and keeps `reg_usb_vbus` on. U-Boot's `bootcmd` skips
+`bootflow scan`. Zephyr runs the port with its own EHCI driver (`zephyr/modules/devenv`). Details in
+[m7-usb2.md](m7-usb2.md).
+
+## Memory window in the M7 DTCM (m7shm)
+
+The upper 128 KiB of the M7 DTCM (M7 `0x20020000`, A55 `0x20420000`) is a window shared with
+Linux: DT node `m7-shm@20420000`, driver `linux/m7shm` (`/dev/m7shm`, in-kernel API), Zephyr
+`src/shm.c`. Plain memory with no protocol yet; the driver follows the M7's remoteproc state,
+because TCM accesses while the M7 is off raise an SError. See [m7shm.md](m7shm.md).
 
 ## Ethernet shared by both cores
 

@@ -1,0 +1,13 @@
+[Unit]
+Description=Let the Cortex-M7's DMA masters (USB2) through the SMMU
+After=systemd-udev-settle.service
+Before=m7-autostart.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# The IOMMU group appears once the SMMU has probed; retry a few times.
+ExecStart=/bin/sh -c 'for i in 1 2 3 4 5; do /usr/sbin/m7-dma-handoff && exit 0; sleep 1; done; exit 1'
+
+[Install]
+WantedBy=multi-user.target

@@ -1,5 +1,5 @@
---- configs/other/mx95evkrpmsg.cfg	2026-11-15 11:29:51.087602942 -0600
-+++ configs/mx95devenv.cfg	2026-11-15 11:33:39.164822375 -0600
+--- /home/wimmo/imx95-work/sm/imx-sm/configs/other/mx95evkrpmsg.cfg	2026-11-19 10:31:33.183033338 -0600
++++ yocto/meta-imx95-devenv/recipes-bsp/imx-system-manager/files/mx95devenv.cfg	2026-11-19 11:36:56.468969773 -0600
 @@ -30,12 +30,12 @@
  ##
  ## ###################################################################
@@ -15,7 +15,7 @@
  
  #==========================================================================#
  # Board                                                                    #
-@@ -380,6 +380,14 @@
+@@ -380,6 +380,17 @@
  LPUART3             OWNER, test
  MSGINTR1            OWNER
  MSGINTR2            OWNER
@@ -27,10 +27,13 @@
 +NETC0               READONLY
 +NETC_VSI1           OWNER
 +NETC_LDID3          OWNER, kpa=0, sid=0x22
++# imx95-devenv: USB2 (ChipIdea EHCI host, Type-A port) is driven by Zephyr on the M7.
++# Linux has no USB2 node; its DMA keeps stream ID 0xf (SMMU identity via m7-dma-handoff).
++USB2                OWNER, kpa=0, sid=0xf
  MU5_A               OWNER
  MU7_B               OWNER
  MU8_B               OWNER
-@@ -828,7 +836,6 @@
+@@ -828,7 +839,6 @@
  NETC_IERB           OWNER
  NETC_LDID1          OWNER, kpa=0, sid=0x20
  NETC_LDID2          OWNER, kpa=0, sid=0x21
@@ -38,7 +41,7 @@
  NETC_LDID4          OWNER, kpa=0, sid=0x23
  NETC_LDID5          OWNER, kpa=0, sid=0x24
  NETC_LDID6          OWNER, kpa=0, sid=0x25
-@@ -837,7 +844,6 @@
+@@ -837,7 +847,6 @@
  NETC_PRB            OWNER
  NETC_TIMER0         OWNER
  NETC_VSI0           OWNER
@@ -46,3 +49,11 @@
  NETC_VSI2           OWNER
  NETC_VSI3           OWNER
  NETC_VSI4           OWNER
+@@ -878,7 +887,6 @@
+ SYSCTR_CMP          OWNER
+ SYSCTR_RD_STOP      READONLY
+ USB1                OWNER, test, kpa=0, sid=0xe
+-USB2                OWNER, kpa=0, sid=0xf
+ USDHC1              OWNER, kpa=0, sid=0x1
+ USDHC2              OWNER, kpa=0, sid=0x2
+ USDHC3              OWNER, kpa=0, sid=0x3

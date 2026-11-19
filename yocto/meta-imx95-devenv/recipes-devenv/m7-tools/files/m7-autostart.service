@@ -1,6 +1,6 @@
 [Unit]
 Description=Load and start the default Cortex-M7 firmware
-After=m7-vf-handoff.service
+After=m7-vf-handoff.service m7-dma-handoff.service
 ConditionPathExists=/lib/firmware/imx95-m7-zephyr.elf
 
 [Service]
