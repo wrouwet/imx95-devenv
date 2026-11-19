@@ -9,6 +9,11 @@ project(m7_netipc)
 
 target_include_directories(app PRIVATE ${LIBMETAL_INCLUDE_DIR} ${OPENAMP_INCLUDE_DIR} ${PLATFORM_DIR})
 target_sources(app PRIVATE src/main.c src/rpmsg.c src/net.c src/reflector.c src/shm.c src/usb.c)
+# Optional demo: print USB2 keyboard key presses (uses private host stack headers)
+if(CONFIG_APP_USB2_KBD_DEMO)
+  target_sources(app PRIVATE src/usb_kbd.c)
+  target_include_directories(app PRIVATE ${ZEPHYR_BASE}/subsys/usb/host)
+endif()
 
 # Linux imx_rproc (fsl,imx95-cm7) takes the M7 boot address from an ELF section
 # named ".interrupts" (MCUXpresso SDK naming) and falls back to 0 (TCM) if there

@@ -134,10 +134,10 @@ static int cmd_usb2_regs(const struct shell *sh, size_t argc, char **argv)
 	return 0;
 }
 
-SHELL_STATIC_SUBCMD_SET_CREATE(usb2_cmds,
-	SHELL_CMD(start, NULL, "start the USB2 host (EHCI)", cmd_usb2_start),
-	SHELL_CMD(regs, NULL, "dump EHCI operational registers", cmd_usb2_regs),
-	SHELL_SUBCMD_SET_END);
+/* Extendable: other files add subcommands with SHELL_SUBCMD_ADD((usb2), ...) */
+SHELL_SUBCMD_SET_CREATE(usb2_cmds, (usb2));
+SHELL_SUBCMD_ADD((usb2), start, NULL, "start the USB2 host (EHCI)", cmd_usb2_start, 1, 0);
+SHELL_SUBCMD_ADD((usb2), regs, NULL, "dump EHCI operational registers", cmd_usb2_regs, 1, 0);
 SHELL_CMD_REGISTER(usb2, &usb2_cmds, "USB2 host on the M7", NULL);
 
 #if defined(CONFIG_APP_USB2_AUTOSTART)
