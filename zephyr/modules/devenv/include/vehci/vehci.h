@@ -12,12 +12,17 @@
  *   host_read/  access to host memory by host bus address (the addresses the
  *   host_write  host driver writes into the schedule): a direct DDR window
  *               today, a PCIe outbound window later.
+ *   dma_addr    the address another local DMA master (the physical USB
+ *               controller) uses for a host address: identity today, the
+ *               outbound window on PCIe. Used for zero-copy transfers.
  *   irq_set     drive the host's interrupt line (level): MSGINTR today, MSI
  *               later.
  *
- * Devices behind the root port implement struct vehci_device_ops; transactions
- * may NAK (-EAGAIN) and are retried, so a device can be backed by something
- * asynchronous (e.g. a translator to a physical USB controller).
+ * Topology: the root port carries a virtual high-speed hub ("Wimmo hub",
+ * emulated here) with one downstream port. A device on that port (the
+ * built-in test device, or the translator to the physical USB controller)
+ * implements struct vehci_device_ops. Full/low-speed devices work like behind
+ * any high-speed hub: the host addresses them through the hub's TT.
  *
  * Copyright (c) 2026, imx95-devenv contributors
  * SPDX-License-Identifier: Apache-2.0
@@ -40,23 +45,48 @@
 #define VEHCI_PID_SETUP		2
 
 enum vehci_speed {
-	VEHCI_SPEED_FULL,
-	VEHCI_SPEED_LOW,
-	VEHCI_SPEED_HIGH,
+	VEHCI_SPEED_FULL = 0,	/* EHCI EPS encoding */
+	VEHCI_SPEED_LOW = 1,
+	VEHCI_SPEED_HIGH = 2,
 };
+
+/* One qTD stage, as the host described it */
+struct vehci_xfer {
+	uint32_t id;		/* host qTD address: stable while the stage is retried */
+	uint8_t addr;		/* USB device address */
+	uint8_t ep;		/* endpoint number 0-15 */
+	uint8_t pid;		/* VEHCI_PID_* */
+	bool periodic;		/* from the periodic schedule (interrupt endpoint) */
+	bool control;		/* control endpoint */
+	enum vehci_speed speed;	/* endpoint speed from the queue head */
+	uint8_t tt_hub;		/* FS/LS: address of the hub with the TT, and its port */
+	uint8_t tt_port;
+	uint16_t mps;
+	bool dt;		/* data toggle the stage starts with */
+	uint32_t bufp[5];	/* host buffer page pointers (EHCI qTD layout) */
+	size_t len;		/* bytes in this stage */
+	size_t actual;		/* out: bytes transferred */
+};
+
+/* Copy between a stage's host buffer and local memory (at byte offset @off) */
+int vehci_xfer_read(const struct vehci_xfer *x, size_t off, void *dst, size_t n);
+int vehci_xfer_write(const struct vehci_xfer *x, size_t off, const void *src, size_t n);
+/* Local DMA address of a host address (zero-copy), or 0 if not reachable */
+uint32_t vehci_dma_addr(uint32_t host_addr);
 
 struct vehci_device_ops {
 	/*
-	 * One transaction stage to endpoint @ep (number, 0-15) with PID @pid.
-	 * OUT/SETUP: @buf holds @len bytes from the host. IN: fill up to @len
-	 * bytes. Set *actual. Return 0, -EAGAIN (NAK, retried later), -EPIPE
-	 * (STALL) or another negative errno (transaction error).
+	 * Run one stage. OUT/SETUP: read the data with vehci_xfer_read; IN:
+	 * write it with vehci_xfer_write. Set x->actual. Return 0, -EAGAIN
+	 * (NAK / still in progress: the same stage, same x->id, comes back
+	 * later), -EPIPE (STALL) or another negative errno (transaction error).
 	 */
-	int (*transfer)(void *ctx, uint8_t ep, uint8_t pid, uint8_t *buf, size_t len,
-			size_t *actual);
-	/* USB bus reset on the port: back to address 0, unconfigured */
+	int (*transfer)(void *ctx, struct vehci_xfer *x);
+	/* Start a bus reset of the device's port */
 	void (*reset)(void *ctx);
-	/* Current USB address (the device applies SET_ADDRESS itself) */
+	/* Optional: true while that reset is still running */
+	bool (*reset_busy)(void *ctx);
+	/* Optional: current address; without it the device takes every address but the hub's */
 	uint8_t (*address)(void *ctx);
 };
 
@@ -64,14 +94,15 @@ struct vehci_transport {
 	volatile uint32_t *regs;
 	int (*host_read)(void *ctx, uint32_t addr, void *buf, size_t len);
 	int (*host_write)(void *ctx, uint32_t addr, const void *buf, size_t len);
+	uint32_t (*dma_addr)(void *ctx, uint32_t host_addr);
 	void (*irq_set)(void *ctx, bool asserted);
 	void *ctx;
 };
 
-/* Initialize the register page and start the emulation thread */
+/* Initialize the register page, attach the virtual hub, start the emulation thread */
 int vehci_start(const struct vehci_transport *t);
 
-/* Attach/detach the device behind the (single) root port */
+/* Attach/detach the device on the virtual hub's downstream port */
 int vehci_port_attach(const struct vehci_device_ops *ops, void *ctx, enum vehci_speed speed);
 void vehci_port_detach(void);
 

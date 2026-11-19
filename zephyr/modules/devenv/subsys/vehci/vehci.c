@@ -24,9 +24,13 @@
  * loaded from its next qTD as the EHCI spec describes; each qTD stage goes to
  * the device behind the port in one piece, the token is written back to the
  * qTD and the overlay, and USBINT/USBERRINT are raised. NAKs leave the qTD
- * active for the next pass. No isochronous (iTD/siTD), no split transactions
- * (a high-speed device sits on the root port; full/low speed will come
- * through a virtual high-speed hub).
+ * active for the next pass. No isochronous (iTD/siTD).
+ *
+ * The root port carries the virtual high-speed hub (vehci_hub.c); stages are
+ * routed by USB address to the hub or to the device on its port. Split
+ * transactions to full/low-speed devices behind the hub need nothing special:
+ * the stage simply runs, and the queue head's speed and TT fields are passed
+ * on (vehci_xfer).
  *
  * Copyright (c) 2026, imx95-devenv contributors
  * SPDX-License-Identifier: Apache-2.0
@@ -38,7 +42,7 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/util.h>
 
-#include <vehci/vehci.h>
+#include "vehci_internal.h"
 
 LOG_MODULE_REGISTER(vehci, CONFIG_VEHCI_LOG_LEVEL);
 
@@ -112,7 +116,11 @@ LOG_MODULE_REGISTER(vehci, CONFIG_VEHCI_LOG_LEVEL);
 #define QH_EP(i)		(((i) >> 8) & 0xf)
 #define QH_DTC			BIT(14)
 #define QH_MPS(i)		(((i) >> 16) & 0x7ff)
+#define QH_EPS(i)		(((i) >> 12) & 3)
+#define QH_C			BIT(27)
 #define QH_SMASK(i)		((i) & 0xff)
+#define QH_HUB(i)		(((i) >> 16) & 0x7f)
+#define QH_PORT(i)		(((i) >> 23) & 0x7f)
 
 #define VENDOR_MAGIC0		0x6d6d6957	/* "Wimm" */
 #define VENDOR_MAGIC1		0x0000006f	/* "o" */
@@ -123,7 +131,6 @@ LOG_MODULE_REGISTER(vehci, CONFIG_VEHCI_LOG_LEVEL);
 #define RESET_ENABLE_MS		10
 #define MAX_QH_PER_PASS		64
 #define MAX_QTD_PER_QH		16
-#define XFER_MAX		20480	/* what one qTD can describe */
 
 struct hw_qh {
 	uint32_t link;
@@ -143,11 +150,10 @@ struct hw_qtd {
 	uint32_t buf[5];
 };
 
+/* Root port; the virtual hub is always on it */
 struct port {
-	const struct vehci_device_ops *ops;
-	void *ctx;
 	enum vehci_speed speed;
-	bool ccs, csc, pe, pr, susp, po;
+	bool ccs, csc, pe, pr, susp, fpr, po;
 	uint32_t host_rw;
 	int64_t csc_time;
 	int64_t reset_start;
@@ -169,8 +175,6 @@ static struct {
 	struct port port;
 	struct vehci_stats st;
 } v;
-
-static uint8_t xbuf[XFER_MAX];
 
 K_THREAD_STACK_DEFINE(vehci_stack, CONFIG_VEHCI_THREAD_STACK_SIZE);
 static struct k_thread vehci_thread_data;
@@ -198,6 +202,7 @@ static uint32_t portsc_compose(void)
 	val |= p->pe ? PORT_PE : 0;
 	val |= p->pr ? PORT_PR : 0;
 	val |= p->susp ? PORT_SUSP : 0;
+	val |= p->fpr ? PORT_FPR : 0;
 	val |= p->po ? PORT_PO : 0;
 	if (ccs && !p->pe) {
 		val |= p->speed == VEHCI_SPEED_LOW ? PORT_LS_K : PORT_LS_J;
@@ -230,21 +235,21 @@ static void port_host_write(uint32_t val)
 		p->pe = false;
 		p->csc = false;	/* the host has seen the connect */
 		p->reset_start = k_uptime_get();
-		if (p->ops) {
-			p->ops->reset(p->ctx);
-		}
-		LOG_INF("vEHCI: port reset");
+		vehci_hub_ops.reset(NULL);
+		LOG_INF("vEHCI: root port reset");
 	} else if (!(val & PORT_PR) && p->pr) {
 		p->pr = false;
 		if (p->ccs && p->speed == VEHCI_SPEED_HIGH) {
 			p->pe = true;
 		}
-		LOG_INF("vEHCI: port reset done, %s", p->pe ? "enabled (high speed)" : "not enabled");
+		LOG_INF("vEHCI: root port %s", p->pe ? "enabled, Wimmo hub (high speed)" : "not enabled");
 	} else if (!(val & PORT_PE) && p->pe) {
 		p->pe = false;
-		LOG_INF("vEHCI: port disabled by the host");
+		LOG_INF("vEHCI: root port disabled by the host");
 	}
-	p->susp = p->pe && (val & PORT_SUSP) && !(val & PORT_FPR);
+	/* Suspend/resume: SUSP and FPR follow the host (it ends a resume by clearing both) */
+	p->susp = p->pe && (val & PORT_SUSP);
+	p->fpr = p->susp && (val & PORT_FPR);
 	if ((val & PORT_PO) != (p->po ? PORT_PO : 0)) {
 		p->po = val & PORT_PO;
 		LOG_INF("vEHCI: port owner -> %s", p->po ? "companion" : "EHCI");
@@ -266,6 +271,13 @@ static void port_timers(int64_t now)
 	    now - p->reset_start >= RESET_ENABLE_MS) {
 		p->pe = true;	/* see header: enabled before the host ends the reset */
 		changed = true;
+	}
+	/* Remote wakeup: the suspended hub has a port change to report (EHCI 4.3.1) */
+	if (p->susp && !p->fpr && vehci_hub_wakeup_pending()) {
+		p->fpr = true;
+		v.pending |= STS_PCD;
+		changed = true;
+		LOG_INF("vEHCI: remote wakeup from the Wimmo hub");
 	}
 	if (changed) {
 		port_publish();
@@ -291,7 +303,7 @@ static void hc_reset(void)
 	v.iaa_req = false;
 	v.frindex = 0;
 
-	p->pe = p->pr = p->susp = p->po = false;
+	p->pe = p->pr = p->susp = p->fpr = p->po = false;
 	p->host_rw = 0;
 	p->csc = false;
 	if (p->ccs) {
@@ -396,12 +408,12 @@ static int host_wr(uint32_t addr, const void *buf, size_t len)
 	return v.t.host_write(v.t.ctx, addr, buf, len);
 }
 
-/* Copy between xbuf and the pages a qTD's buffer pointers describe */
-static int qtd_data(const uint32_t bufp[5], size_t len, bool to_host)
+/* Copy between local memory and the pages a qTD's buffer pointers describe */
+static int qtd_copy(const uint32_t bufp[5], size_t off, uint8_t *local, size_t len, bool to_host)
 {
-	uint32_t off = bufp[0] & 0xfff;
 	size_t done = 0;
 
+	off += bufp[0] & 0xfff;
 	while (done < len) {
 		uint32_t pos = off + done;
 		uint32_t page = pos >> 12;
@@ -413,7 +425,7 @@ static int qtd_data(const uint32_t bufp[5], size_t len, bool to_host)
 			return -EINVAL;
 		}
 		addr = (bufp[page] & ~0xfffU) + (pos & 0xfff);
-		ret = to_host ? host_wr(addr, xbuf + done, n) : host_rd(addr, xbuf + done, n);
+		ret = to_host ? host_wr(addr, local + done, n) : host_rd(addr, local + done, n);
 		if (ret) {
 			return ret;
 		}
@@ -422,36 +434,59 @@ static int qtd_data(const uint32_t bufp[5], size_t len, bool to_host)
 	return 0;
 }
 
+int vehci_xfer_read(const struct vehci_xfer *x, size_t off, void *dst, size_t n)
+{
+	return off + n > x->len ? -EINVAL : qtd_copy(x->bufp, off, dst, n, false);
+}
+
+int vehci_xfer_write(const struct vehci_xfer *x, size_t off, const void *src, size_t n)
+{
+	return off + n > x->len ? -EINVAL : qtd_copy(x->bufp, off, (uint8_t *)src, n, true);
+}
+
+uint32_t vehci_dma_addr(uint32_t host_addr)
+{
+	return v.t.dma_addr ? v.t.dma_addr(v.t.ctx, host_addr) : host_addr;
+}
+
 /* --- transactions --- */
 
 enum exec_result { EXEC_DONE, EXEC_NAK };
 
 /* Run the overlay's qTD against the device; updates *tok, sets *short_pkt */
-static enum exec_result qtd_execute(const struct hw_qh *qh, uint32_t *tok, bool *short_pkt)
+static enum exec_result qtd_execute(const struct hw_qh *qh, bool periodic, uint32_t *tok,
+				    bool *short_pkt)
 {
-	struct port *p = &v.port;
+	const struct vehci_device_ops *ops;
+	void *ctx;
 	uint32_t t = qh->token;
-	uint8_t pid = TOK_PID(t);
-	size_t total = TOK_BYTES(t);
-	size_t len = MIN(total, sizeof(xbuf));
-	size_t actual = 0;
-	uint16_t mps = QH_MPS(qh->info1) ? QH_MPS(qh->info1) : 64;
+	struct vehci_xfer x = {
+		.id = qh->cur,
+		.addr = QH_ADDR(qh->info1),
+		.ep = QH_EP(qh->info1),
+		.pid = TOK_PID(t),
+		.periodic = periodic,
+		.speed = (enum vehci_speed)QH_EPS(qh->info1),
+		.tt_hub = QH_HUB(qh->info2),
+		.tt_port = QH_PORT(qh->info2),
+		.mps = QH_MPS(qh->info1) ? QH_MPS(qh->info1) : 64,
+		.dt = t & TOK_DT,
+		.len = TOK_BYTES(t),
+	};
+	struct port *p = &v.port;
 	int ret;
 
+	x.control = x.ep == 0 || (qh->info1 & QH_C);
+	memcpy(x.bufp, qh->buf, sizeof(x.bufp));
 	*short_pkt = false;
-	if (!p->ops || !p->pe || p->susp || p->po || p->pr ||
-	    QH_ADDR(qh->info1) != p->ops->address(p->ctx)) {
+
+	if (!p->pe || p->susp || p->fpr || p->po || p->pr || !vehci_hub_route(x.addr, &ops, &ctx)) {
 		/* nobody answers: transaction errors until the error counter runs out */
 		*tok = (t & ~(TOK_ACTIVE | TOK_CERR_MASK)) | TOK_HALTED | TOK_XACT;
 		return EXEC_DONE;
 	}
 
-	if (pid != VEHCI_PID_IN && len && qtd_data(qh->buf, len, false)) {
-		*tok = (t & ~TOK_ACTIVE) | TOK_HALTED | TOK_XACT;
-		return EXEC_DONE;
-	}
-
-	ret = p->ops->transfer(p->ctx, QH_EP(qh->info1), pid, xbuf, len, &actual);
+	ret = ops->transfer(ctx, &x);
 	if (ret == -EAGAIN) {
 		return EXEC_NAK;
 	}
@@ -464,27 +499,23 @@ static enum exec_result qtd_execute(const struct hw_qh *qh, uint32_t *tok, bool 
 		return EXEC_DONE;
 	}
 
-	if (pid == VEHCI_PID_IN) {
-		actual = MIN(actual, len);
-		if (actual && qtd_data(qh->buf, actual, true)) {
-			*tok = (t & ~TOK_ACTIVE) | TOK_HALTED | TOK_XACT;
-			return EXEC_DONE;
-		}
-		*short_pkt = actual < total;
+	x.actual = MIN(x.actual, x.len);
+	if (x.pid == VEHCI_PID_IN) {
+		*short_pkt = x.actual < x.len;
 	} else {
-		actual = len;
+		x.actual = x.len;
 	}
 
 	/* One data toggle flip per packet (a zero-length transfer is one packet) */
-	if ((actual ? DIV_ROUND_UP(actual, mps) : 1) & 1) {
+	if ((x.actual ? DIV_ROUND_UP(x.actual, x.mps) : 1) & 1) {
 		t ^= TOK_DT;
 	}
-	*tok = (t & ~(TOK_ACTIVE | TOK_BYTES_MASK)) | ((uint32_t)(total - actual) << 16);
+	*tok = (t & ~(TOK_ACTIVE | TOK_BYTES_MASK)) | ((uint32_t)(x.len - x.actual) << 16);
 	v.st.qtds++;
 	return EXEC_DONE;
 }
 
-static void qh_process(uint32_t addr)
+static void qh_process(uint32_t addr, bool periodic)
 {
 	struct hw_qh qh;
 
@@ -525,7 +556,7 @@ static void qh_process(uint32_t addr)
 				sizeof(qh) - offsetof(struct hw_qh, cur));
 		}
 
-		if (qtd_execute(&qh, &tok, &short_pkt) == EXEC_NAK) {
+		if (qtd_execute(&qh, periodic, &tok, &short_pkt) == EXEC_NAK) {
 			v.st.naks++;
 			return;
 		}
@@ -561,7 +592,7 @@ static void async_pass(void)
 	for (int i = 0; i < MAX_QH_PER_PASS; i++) {
 		uint32_t link;
 
-		qh_process(addr);
+		qh_process(addr, false);
 		if (host_rd(addr, &link, sizeof(link)) || (link & LINK_T)) {
 			return;
 		}
@@ -596,7 +627,7 @@ static void periodic_pass(void)
 				return;
 			}
 			if (QH_SMASK(qh.info2)) {
-				qh_process(addr);
+				qh_process(addr, true);
 			}
 			link = qh.link;
 		} else {
@@ -627,6 +658,7 @@ static void poll_once(void)
 	}
 
 	port_timers(k_uptime_get());
+	vehci_hub_poll(k_uptime_get());
 	frindex_update();
 
 	if (v.running && (v.cmd & CMD_ASE)) {
@@ -671,6 +703,8 @@ int vehci_start(const struct vehci_transport *t)
 	reg_wr(CAP_HCSPARAMS, 1);	/* one port, no port power control */
 	reg_wr(CAP_HCCPARAMS, 1 << 4);	/* IST 1, 32-bit, fixed frame list, no EECP */
 	v.port.speed = VEHCI_SPEED_HIGH;
+	v.port.ccs = true;	/* the virtual hub */
+	vehci_hub_ops.reset(NULL);
 	hc_reset();
 	sts_publish();
 
@@ -691,33 +725,17 @@ int vehci_start(const struct vehci_transport *t)
 
 int vehci_port_attach(const struct vehci_device_ops *ops, void *ctx, enum vehci_speed speed)
 {
-	if (speed != VEHCI_SPEED_HIGH) {
-		return -ENOTSUP;	/* full/low speed: behind a virtual high-speed hub (to do) */
-	}
 	k_mutex_lock(&v.lock, K_FOREVER);
-	v.port.ops = ops;
-	v.port.ctx = ctx;
-	v.port.speed = speed;
-	v.port.ccs = true;
-	v.port.pe = false;
-	port_change();
-	port_publish();
+	vehci_hub_attach(ops, ctx, speed);
 	k_mutex_unlock(&v.lock);
-	LOG_INF("vEHCI: device attached to the root port");
 	return 0;
 }
 
 void vehci_port_detach(void)
 {
 	k_mutex_lock(&v.lock, K_FOREVER);
-	v.port.ops = NULL;
-	v.port.ccs = false;
-	v.port.pe = false;
-	v.port.pr = false;
-	port_change();
-	port_publish();
+	vehci_hub_detach();
 	k_mutex_unlock(&v.lock);
-	LOG_INF("vEHCI: device detached from the root port");
 }
 
 void vehci_get_stats(struct vehci_stats *s)
@@ -729,14 +747,8 @@ const char *vehci_port_state(void)
 {
 	struct port *p = &v.port;
 
-	if (!p->ccs) {
-		return "empty";
-	}
-	if (p->pr) {
-		return "resetting";
-	}
 	if (!p->pe) {
-		return "connected, disabled";
+		return p->pr ? "root port resetting" : "root port not enabled";
 	}
-	return p->susp ? "enabled, suspended" : "enabled";
+	return vehci_hub_port_state();
 }

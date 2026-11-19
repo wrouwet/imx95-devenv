@@ -5,7 +5,8 @@
  *  - registers: the first 4 KiB of the m7shm window (DTCM 0x20020000, Linux
  *    0x20420000), mapped by Linux's stock ehci-platform driver
  *  - host memory: Linux DDR 0x90000000-0xDFFFFFFF, read and written directly
- *    (SM grant, non-cacheable MPU regions in the overlay)
+ *    (SM grant, non-cacheable MPU regions in the overlay); the physical USB2
+ *    controller reaches it at the same addresses (zero-copy)
  *  - interrupt: MSGINTR1 channel 0, wired to the A55 GIC as SPI 236 (level).
  *    Writing MSIIR raises it, reading MSIR clears it; Linux never touches it.
  *
@@ -59,6 +60,12 @@ static int host_write(void *ctx, uint32_t addr, const void *buf, size_t len)
 	return 0;
 }
 
+/* The physical USB2 controller DMAs as the M7 domain: same addresses (SMMU identity) */
+static uint32_t dma_addr(void *ctx, uint32_t host_addr)
+{
+	return host_range_ok(host_addr, 1) ? host_addr : 0;
+}
+
 static void irq_set(void *ctx, bool asserted)
 {
 	if (asserted) {
@@ -74,6 +81,7 @@ static int vehci_a55_init(void)
 		.regs = (volatile uint32_t *)M7SHM_BASE,
 		.host_read = host_read,
 		.host_write = host_write,
+		.dma_addr = dma_addr,
 		.irq_set = irq_set,
 	};
 
