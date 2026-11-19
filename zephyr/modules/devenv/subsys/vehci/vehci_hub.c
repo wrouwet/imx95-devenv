@@ -357,6 +357,11 @@ void vehci_hub_poll(int64_t now)
 	}
 }
 
+uint8_t vehci_hub_address(void)
+{
+	return hub.addr;
+}
+
 bool vehci_hub_wakeup_pending(void)
 {
 	return hub.rwakeup && hub.change;

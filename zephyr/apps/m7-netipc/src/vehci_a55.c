@@ -7,6 +7,8 @@
  *  - host memory: Linux DDR 0x90000000-0xDFFFFFFF, read and written directly
  *    (SM grant, non-cacheable MPU regions in the overlay); the physical USB2
  *    controller reaches it at the same addresses (zero-copy)
+ *  - devices: the translator (vehci_xlat) relays the physical USB2 port, or
+ *    the built-in test device
  *  - interrupt: MSGINTR1 channel 0, wired to the A55 GIC as SPI 236 (level).
  *    Writing MSIIR raises it, reading MSIR clears it; Linux never touches it.
  *
@@ -25,6 +27,7 @@
 #include <zephyr/sys/sys_io.h>
 
 #include <vehci/vehci.h>
+#include <vehci/vehci_xlat.h>
 
 #include "m7shm.h"
 
@@ -87,7 +90,9 @@ static int vehci_a55_init(void)
 
 	(void)sys_read32(VEHCI_MSGINTR_BASE + MSGINTR_MSIR);	/* start deasserted */
 	vehci_start(&t);
-#if defined(CONFIG_APP_VEHCI_TESTDEV)
+#if defined(CONFIG_APP_VEHCI_XLAT)
+	vehci_xlat_start(DEVICE_DT_GET(DT_NODELABEL(usb2)));
+#elif defined(CONFIG_APP_VEHCI_TESTDEV)
 	vehci_port_attach(&vehci_testdev_ops, vehci_testdev_ctx(), VEHCI_SPEED_HIGH);
 #endif
 	return 0;
@@ -109,8 +114,27 @@ static int cmd_status(const struct shell *sh, size_t argc, char **argv)
 	shell_print(sh, "port: %s", vehci_port_state());
 	shell_print(sh, "polls %u, host writes %u, resets %u, irqs %u, qTDs %u, NAKs %u, errors %u",
 		    s.polls, s.host_writes, s.resets, s.irqs, s.qtds, s.naks, s.errors);
+#if defined(CONFIG_APP_VEHCI_XLAT)
+	struct vehci_xlat_stats x;
+
+	vehci_xlat_get_stats(&x);
+	shell_print(sh, "translator (%s): stages %u (zero-copy %u, bounced %u), stalls %u, errors %u, "
+		    "cancelled %u, port resets %u", vehci_xlat_bounce() ? "bounce" : "zero-copy",
+		    x.stages, x.zero_copy, x.bounced, x.stalls, x.errors, x.cancelled, x.resets);
+#endif
 	return 0;
 }
+
+#if defined(CONFIG_APP_VEHCI_XLAT)
+static int cmd_bounce(const struct shell *sh, size_t argc, char **argv)
+{
+	if (argc > 1) {
+		vehci_xlat_set_bounce(strcmp(argv[1], "off") != 0);
+	}
+	shell_print(sh, "data path: %s", vehci_xlat_bounce() ? "bounce buffers" : "zero-copy");
+	return 0;
+}
+#endif
 
 static int cmd_plug(const struct shell *sh, size_t argc, char **argv)
 {
@@ -127,5 +151,9 @@ SHELL_STATIC_SUBCMD_SET_CREATE(vehci_cmds,
 	SHELL_CMD(status, NULL, "registers, port and counters", cmd_status),
 	SHELL_CMD(plug, NULL, "attach the test device to the root port", cmd_plug),
 	SHELL_CMD(unplug, NULL, "detach it", cmd_unplug),
+#if defined(CONFIG_APP_VEHCI_XLAT)
+	SHELL_CMD_ARG(bounce, NULL, "[on|off] translator data path (default zero-copy)", cmd_bounce,
+		      1, 1),
+#endif
 	SHELL_SUBCMD_SET_END);
 SHELL_CMD_REGISTER(vehci, &vehci_cmds, "Wimmo virtual EHCI for Linux", NULL);

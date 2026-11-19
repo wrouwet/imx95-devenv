@@ -37,6 +37,23 @@ config VEHCI_THREAD_STACK_SIZE
 	int "Emulation thread stack size"
 	default 2048
 
+config VEHCI_XLAT
+	bool "Translator to the physical USB controller"
+	depends on UHC_CI_EHCI
+	help
+	  The device on the physical root port appears on the Wimmo hub's
+	  port; the host's qTDs for it become physical qTDs (raw interface of
+	  uhc_ci_ehci). USB addresses and data toggles pass through.
+
+config VEHCI_XLAT_BOUNCE
+	bool "Bounce data through M7 memory by default (instead of zero-copy)"
+	depends on VEHCI_XLAT
+
+config VEHCI_XLAT_KEYS
+	bool "Print key presses of boot keyboards passing through"
+	default y
+	depends on VEHCI_XLAT
+
 module = VEHCI
 module-str = vehci
 source "subsys/logging/Kconfig.template.log_config"

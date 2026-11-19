@@ -18,6 +18,9 @@ bool vehci_hub_route(uint8_t addr, const struct vehci_device_ops **ops, void **c
 /* Port reset timing etc., called from the emulation thread with the lock held */
 void vehci_hub_poll(int64_t now);
 
+/* USB address the host gave the virtual hub (0 before SET_ADDRESS) */
+uint8_t vehci_hub_address(void);
+
 /* True when the (suspended) hub would signal remote wakeup: a port changed and the host armed it */
 bool vehci_hub_wakeup_pending(void);
 
