@@ -263,6 +263,34 @@ static int cmd_perf(const struct shell *sh, size_t argc, char **argv)
 	return 0;
 }
 
+static int cmd_stages(const struct shell *sh, size_t argc, char **argv)
+{
+	static const char *const b[] = {"<=4K", "<=8K", "<=12K", "<=16K", "<=20K", "<=24K", "<=28K",
+					">28K"};
+	struct vehci_stats s;
+	uint32_t total = 0;
+
+	vehci_get_stats(&s);
+	for (int i = 0; i < 8; i++) {
+		total += s.len_hist[i];
+	}
+	shell_print(sh, "data stages (> 64 B): %u", total);
+	for (int i = 0; i < 8 && total; i++) {
+		if (s.len_hist[i]) {
+			shell_print(sh, "  len %-6s %7u (%u %%)", b[i], s.len_hist[i],
+				    s.len_hist[i] * 100 / total);
+		}
+	}
+	for (int i = 0; i < 16 && total; i++) {
+		if (s.region[i]) {
+			shell_print(sh, "  buffer 0x%x0000000-0x%xfffffff %7u (%u %%)", i, i,
+				    s.region[i], s.region[i] * 100 / total);
+		}
+	}
+	vehci_clear_stage_stats();
+	return 0;
+}
+
 static int cmd_poll(const struct shell *sh, size_t argc, char **argv)
 {
 	if (argc > 1) {
@@ -308,6 +336,7 @@ SHELL_STATIC_SUBCMD_SET_CREATE(vehci_cmds,
 	SHELL_CMD(plug, NULL, "attach the test device to the root port", cmd_plug),
 	SHELL_CMD(unplug, NULL, "detach it", cmd_unplug),
 	SHELL_CMD_ARG(perf, NULL, "[seconds] throughput and M7 load", cmd_perf, 1, 1),
+	SHELL_CMD(stages, NULL, "data stage sizes and host buffer regions (then cleared)", cmd_stages),
 	SHELL_CMD_ARG(poll, NULL, "[busy|adaptive] emulation polling", cmd_poll, 1, 1),
 #if defined(CONFIG_APP_VEHCI_XLAT)
 	SHELL_CMD_ARG(bounce, NULL, "[on|off] translator data path (default zero-copy)", cmd_bounce,

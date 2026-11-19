@@ -524,6 +524,10 @@ static enum exec_result qtd_execute(const struct hw_qh *qh, bool periodic, uint3
 	*tok = (t & ~(TOK_ACTIVE | TOK_BYTES_MASK)) | ((uint32_t)(x.len - x.actual) << 16);
 	v.st.qtds++;
 	v.st.bytes += x.actual;
+	if (x.len > 64) {
+		v.st.len_hist[MIN((x.len - 1) / 4096, 7)]++;
+		v.st.region[x.bufp[0] >> 28]++;
+	}
 	return EXEC_DONE;
 }
 
@@ -962,6 +966,12 @@ void vehci_port_detach(void)
 	k_mutex_lock(&v.lock, K_FOREVER);
 	vehci_hub_detach();
 	k_mutex_unlock(&v.lock);
+}
+
+void vehci_clear_stage_stats(void)
+{
+	memset(v.st.len_hist, 0, sizeof(v.st.len_hist));
+	memset(v.st.region, 0, sizeof(v.st.region));
 }
 
 void vehci_get_stats(struct vehci_stats *s)

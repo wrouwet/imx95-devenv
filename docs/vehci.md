@@ -251,8 +251,18 @@ to the controller directly, so transparent huge pages (2 MiB contiguous) make st
 THP: `echo always > /sys/kernel/mm/transparent_hugepage/enabled` (already the image default; it
 helps when the buffer is large and aligned enough, e.g. `dd bs=4M`, which explains occasional
 "fast" runs with `bs=1M`). SCSI command size: `/sys/bus/scsi/devices/0:0:0:0/max_sectors` and
-`/sys/block/sda/queue/max_sectors_kb`. The stages stay well below 20 KiB, probably because Linux's
-buffers above 0xC0000000 are bounced through swiotlb (the vEHCI's `dma-ranges`); not verified yet.
+`/sys/block/sda/queue/max_sectors_kb`.
+
+**swiotlb check** (`vehci stages`: data-stage length buckets and host buffer regions; Linux
+`/sys/kernel/debug/swiotlb/`). Every data stage's buffer was in 0xB0000000–0xBFFFFFFF, i.e. in
+Linux's swiotlb (0xBBFFF000–0xBFFFF000; high-water 61 slabs = one 120 KiB SCSI command): **Linux
+bounces all data**, because its buffers lie outside the vEHCI's DMA window (`dma-ranges` < 0xC0000000,
+and EHCI is 32-bit while most of Linux's RAM is above 4 GiB). That costs A55 memcpy, not M7 time.
+It does not explain the small stages, though: swiotlb maps each scatter-gather segment on its own
+and keeps its size. Measured lengths: THP never 69 % ≤4 KiB, 23 % ≤16 KiB; THP always 83 % ≤4 KiB,
+13 % ≤20 KiB. The stage size follows Linux's segments, mostly single 4 KiB pages. On PCIe the bounce
+goes away (host memory through the outbound window, EHCI 64-bit addressing possible); on the A55
+stand-in it stays for buffers above the window.
 
 **Why the queue stays in host memory.** EHCI has the host driver allocate queue heads, qTDs and the
 frame list in its own memory; an unmodified driver uses its normal DMA allocator (Linux DDR here,

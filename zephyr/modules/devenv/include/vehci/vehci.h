@@ -126,7 +126,13 @@ struct vehci_stats {
 	uint64_t poll_cycles;	/* all polls */
 	uint64_t work_cycles;	/* polls that retired at least one stage */
 	uint32_t work_polls;
+	/* data stages (> 64 bytes): length buckets and where the host buffer is */
+	uint32_t len_hist[8];	/* <=4K, <=8K, <=12K, <=16K, <=20K, (unused) */
+	uint32_t region[16];	/* by host buffer address bits 31:28 */
 };
+
+/* Clear the stage statistics above */
+void vehci_clear_stage_stats(void);
 
 void vehci_get_stats(struct vehci_stats *s);
 
