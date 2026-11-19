@@ -37,6 +37,14 @@ config VEHCI_THREAD_STACK_SIZE
 	int "Emulation thread stack size"
 	default 2048
 
+config VEHCI_ADAPTIVE_POLL
+	bool "Sleep between polls when idle"
+	default y
+	help
+	  Poll the register page and schedules continuously while there is
+	  activity; after 2 ms without any, sleep one tick between polls so
+	  the core can idle. Off: poll all the time (lowest priority).
+
 config VEHCI_XLAT
 	bool "Translator to the physical USB controller"
 	depends on UHC_CI_EHCI

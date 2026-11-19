@@ -162,6 +162,25 @@ with `iflag=direct`; `vehci perf 4` on the M7 during the read. Checksums identic
   per 4 KB stage round trip (USB 2 bus time + relay). Pipelining several qTDs of a queue head
   would raise it towards the link rate.
 
+Core idle and per-thread load (Zephyr thread runtime stats on the DWT cycle counter, `vehci perf`).
+Polling is adaptive by default (`CONFIG_VEHCI_ADAPTIVE_POLL`, `vehci poll busy|adaptive`): busy
+while anything happens (host register writes, retired stages, a pending async stage), and after 2 ms
+without activity one tick of sleep (~1 ms at 1024 Hz) between polls:
+
+| Case | Throughput | Core idle | vehci thread | of which real work | USB2 driver thread |
+|---|---|---|---|---|---|
+| idle (stick plugged, no I/O), adaptive | – | **99.0 %** | 0.9 % | – | 0.0 % |
+| zero-copy read, adaptive | 14.4 MB/s | 0.1 % | 96.3 % | 9.0 % | 3.4 % |
+| bounce read, adaptive | 14.3 MB/s | 0.2 % | 96.4 % | 19.4 % | 3.3 % |
+| zero-copy read, busy polling | 14.4 MB/s | 0.0 % | 96.5 % | 8.8 % | 3.4 % |
+
+During a transfer the core shows no idle time because the vEHCI thread spins on the pending stage
+(an EHCI host never rings a doorbell for new qTDs, so the schedule has to be watched); only
+about 12 % (zero-copy) or 23 % (bounce) of the core is real work, and anything with a higher
+priority (network, RPMsg, shell) still runs first. Adaptive polling costs no throughput. A finer
+timer (sub-millisecond sleeps) or waking on the physical completion would turn most of the
+spinning into idle time.
+
 Rough projection, if the link weren't the limit (zero-copy, data never touches the M7):
 - at today's 4 KB stages: ~32,000 stages/s at 100 % M7, about 1 Gbit/s
 - with 16–20 KB stages (what one EHCI qTD can carry with page-aligned buffers): about 4–5 Gbit/s

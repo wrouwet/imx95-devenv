@@ -157,6 +157,38 @@ static uint64_t thread_cycles(const char *name)
  * so its raw CPU share is meaningless; count the cycles of polls that retired a stage,
  * plus the USB2 driver thread (completions, physical scheduling).
  */
+#define PERF_THREADS 32
+
+static struct {
+	k_tid_t tid;
+	uint64_t c0, c1;
+} perf_thr[PERF_THREADS];
+static int perf_n;
+
+static void perf_snap_cb(const struct k_thread *t, void *user)
+{
+	bool after = (bool)(uintptr_t)user;
+	k_thread_runtime_stats_t rs;
+	int i;
+
+	if (k_thread_runtime_stats_get((k_tid_t)t, &rs)) {
+		return;
+	}
+	for (i = 0; i < perf_n && perf_thr[i].tid != (k_tid_t)t; i++) {
+	}
+	if (i == perf_n) {
+		if (after || perf_n == PERF_THREADS) {
+			return;
+		}
+		perf_thr[perf_n++].tid = (k_tid_t)t;
+	}
+	if (after) {
+		perf_thr[i].c1 = rs.execution_cycles;
+	} else {
+		perf_thr[i].c0 = rs.execution_cycles;
+	}
+}
+
 static int cmd_perf(const struct shell *sh, size_t argc, char **argv)
 {
 	uint32_t secs = argc > 1 ? strtoul(argv[1], NULL, 0) : 5;
@@ -165,7 +197,12 @@ static int cmd_perf(const struct shell *sh, size_t argc, char **argv)
 	uint64_t d0, d1;
 	int64_t t0, t1;
 
+	k_thread_runtime_stats_t cpu0, cpu1;
+
 	/* No k_cycle_get_64() here: the 32 kHz system timer has no 64-bit counter (it traps) */
+	perf_n = 0;
+	k_thread_foreach(perf_snap_cb, (void *)false);
+	k_thread_runtime_stats_cpu_get(0, &cpu0);
 	vehci_get_stats(&a);
 	d0 = thread_cycles(drv);
 	t0 = k_uptime_get();
@@ -173,6 +210,8 @@ static int cmd_perf(const struct shell *sh, size_t argc, char **argv)
 	t1 = k_uptime_get();
 	d1 = thread_cycles(drv);
 	vehci_get_stats(&b);
+	k_thread_runtime_stats_cpu_get(0, &cpu1);
+	k_thread_foreach(perf_snap_cb, (void *)true);
 
 	uint64_t bytes = b.bytes - a.bytes;
 	uint64_t work = b.work_cycles - a.work_cycles;	/* CPU (DWT) cycles */
@@ -188,13 +227,42 @@ static int cmd_perf(const struct shell *sh, size_t argc, char **argv)
 	shell_print(sh, "M7 work: vEHCI %llu.%02llu %%, USB2 driver thread %llu.%02llu %% of the core",
 		    work * 100 / cpu_el, work * 10000 / cpu_el % 100, drvc * 100 / cpu_el,
 		    drvc * 10000 / cpu_el % 100);
-	shell_print(sh, "vEHCI polling (incl. idle) %llu %% of the core", poll * 100 / cpu_el);
+	shell_print(sh, "vEHCI polling (incl. idle polls) %llu %% of the core (%s polling)",
+		    poll * 100 / cpu_el, vehci_adaptive() ? "adaptive" : "busy");
+
+	uint64_t cpu_tot = cpu1.execution_cycles - cpu0.execution_cycles;
+	uint64_t cpu_idle = cpu1.idle_cycles - cpu0.idle_cycles;
+
+	if (cpu_tot) {
+		shell_print(sh, "core: idle %llu.%02llu %%, busy %llu.%02llu %% (idle thread vs all threads)",
+			    cpu_idle * 100 / cpu_tot, cpu_idle * 10000 / cpu_tot % 100,
+			    (cpu_tot - cpu_idle) * 100 / cpu_tot,
+			    (cpu_tot - cpu_idle) * 10000 / cpu_tot % 100);
+		for (int i = 0; i < perf_n; i++) {
+			uint64_t c = perf_thr[i].c1 - perf_thr[i].c0;
+			const char *n = k_thread_name_get(perf_thr[i].tid);
+
+			if (c * 1000 / cpu_tot >= 1) {	/* >= 0.1 % */
+				shell_print(sh, "  %-20s %3llu.%01llu %%", n ? n : "?", c * 100 / cpu_tot,
+					    c * 1000 / cpu_tot % 10);
+			}
+		}
+	}
 	if (bytes) {
 		uint64_t cpb100 = load * 100 / bytes;	/* cycles per byte x100 */
 
 		shell_print(sh, "cost %llu.%02llu cycles/byte -> data rate at 100 %% M7 work: %llu Mbit/s",
 			    cpb100 / 100, cpb100 % 100, cpu_hz * 8 * 100 / cpb100 / 1000000);
 	}
+	return 0;
+}
+
+static int cmd_poll(const struct shell *sh, size_t argc, char **argv)
+{
+	if (argc > 1) {
+		vehci_set_adaptive(strcmp(argv[1], "busy") != 0);
+	}
+	shell_print(sh, "polling: %s", vehci_adaptive() ? "adaptive" : "busy");
 	return 0;
 }
 
@@ -225,6 +293,7 @@ SHELL_STATIC_SUBCMD_SET_CREATE(vehci_cmds,
 	SHELL_CMD(plug, NULL, "attach the test device to the root port", cmd_plug),
 	SHELL_CMD(unplug, NULL, "detach it", cmd_unplug),
 	SHELL_CMD_ARG(perf, NULL, "[seconds] throughput and M7 load", cmd_perf, 1, 1),
+	SHELL_CMD_ARG(poll, NULL, "[busy|adaptive] emulation polling", cmd_poll, 1, 1),
 #if defined(CONFIG_APP_VEHCI_XLAT)
 	SHELL_CMD_ARG(bounce, NULL, "[on|off] translator data path (default zero-copy)", cmd_bounce,
 		      1, 1),

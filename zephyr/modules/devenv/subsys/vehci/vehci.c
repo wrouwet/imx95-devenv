@@ -168,6 +168,9 @@ static struct {
 	uint32_t portsc;	/* last PORTSC published */
 	bool running;
 	bool iaa_req;
+	bool active;		/* this poll did something: keep polling without sleeping */
+	bool adaptive;
+	int64_t last_active;
 	bool irq;
 	uint32_t frindex;
 	uint32_t us_acc;
@@ -560,6 +563,9 @@ static void qh_process(uint32_t addr, bool periodic)
 
 		if (qtd_execute(&qh, periodic, &tok, &short_pkt) == EXEC_NAK) {
 			v.st.naks++;
+			if (!periodic) {
+				v.active = true;	/* a pending async stage: poll fast */
+			}
 			return;
 		}
 
@@ -649,6 +655,8 @@ static void poll_once(void)
 
 	v.st.polls++;
 
+	uint32_t writes = v.st.host_writes;
+
 	val = reg_rd(R_CMD);
 	if (val != v.cmd) {
 		v.st.host_writes++;
@@ -682,6 +690,10 @@ static void poll_once(void)
 	sts_publish();
 	irq_update();
 
+	if (v.st.host_writes != writes || v.st.qtds != qtds) {
+		v.active = true;
+	}
+
 	t1 = timing_counter_get();
 	uint64_t cyc = timing_cycles_get(&t0, &t1);
 
@@ -692,14 +704,42 @@ static void poll_once(void)
 	}
 }
 
+/*
+ * Lowest priority: everything else runs first. Busy polling while anything
+ * happens; in adaptive mode, after 2 ms without activity sleep one tick (~1 ms
+ * at 1024 Hz), so the core can idle. EHCI's tightest host deadline is 2 ms
+ * (halt after RS=0).
+ */
 static void vehci_thread(void *a, void *b, void *c)
 {
 	while (true) {
+		int64_t now;
+
 		k_mutex_lock(&v.lock, K_FOREVER);
+		v.active = false;
 		poll_once();
 		k_mutex_unlock(&v.lock);
-		k_yield();	/* lowest priority: everything else runs first */
+
+		now = k_uptime_get();
+		if (v.active) {
+			v.last_active = now;
+		}
+		if (v.adaptive && now - v.last_active > 2) {
+			k_sleep(K_TICKS(1));
+		} else {
+			k_yield();
+		}
 	}
+}
+
+void vehci_set_adaptive(bool adaptive)
+{
+	v.adaptive = adaptive;
+}
+
+bool vehci_adaptive(void)
+{
+	return v.adaptive;
 }
 
 /* --- API --- */
@@ -713,6 +753,7 @@ int vehci_start(const struct vehci_transport *t)
 	k_mutex_init(&v.lock);
 	timing_init();
 	timing_start();
+	v.adaptive = IS_ENABLED(CONFIG_VEHCI_ADAPTIVE_POLL);
 
 	reg_wr(CAP_LENGTH_VERSION, (0x0100U << 16) | VEHCI_CAPLENGTH);	/* EHCI 1.00 */
 	reg_wr(CAP_HCSPARAMS, 1);	/* one port, no port power control */

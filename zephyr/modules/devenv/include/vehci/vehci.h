@@ -122,6 +122,10 @@ struct vehci_stats {
 };
 
 void vehci_get_stats(struct vehci_stats *s);
+
+/* Polling: busy (false) or adaptive (sleep ~1 ms after 2 ms without activity) */
+void vehci_set_adaptive(bool adaptive);
+bool vehci_adaptive(void);
 const char *vehci_port_state(void);
 
 /* Built-in test device: "Wimmo" virtual test device (VID 0x1209, PID 0x0001) */
