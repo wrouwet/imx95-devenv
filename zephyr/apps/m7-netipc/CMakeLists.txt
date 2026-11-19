@@ -11,7 +11,11 @@ target_include_directories(app PRIVATE ${LIBMETAL_INCLUDE_DIR} ${OPENAMP_INCLUDE
 target_sources(app PRIVATE src/main.c src/rpmsg.c src/net.c src/reflector.c src/shm.c)
 # Zephyr's own USB host stack on USB2 (off while the vEHCI translator owns USB2)
 target_sources_ifdef(CONFIG_USB_HOST_STACK app PRIVATE src/usb.c)
-target_sources_ifdef(CONFIG_APP_VEHCI app PRIVATE src/vehci_a55.c)
+target_sources_ifdef(CONFIG_APP_VEHCI app PRIVATE src/vehci_a55.c src/a55_irq.c)
+target_sources_ifdef(CONFIG_APP_VXHCI app PRIVATE src/vxhci_a55.c)
+if(CONFIG_APP_VXHCI AND NOT CONFIG_APP_VEHCI)
+  target_sources(app PRIVATE src/a55_irq.c)
+endif()
 
 # Linux imx_rproc (fsl,imx95-cm7) takes the M7 boot address from an ELF section
 # named ".interrupts" (MCUXpresso SDK naming) and falls back to 0 (TCM) if there

@@ -1,22 +1,27 @@
 #!/bin/sh
-# m7-vehci-event - announce the Wimmo virtual EHCI and its USB devices on the consoles.
+# m7-vehci-event - announce the Wimmo virtual EHCI/xHCI and their USB devices on the consoles.
 #
-# Run by udev (90-wimmo-vehci.rules) for USB devices below the vehci platform
-# device: the root hub (= the controller came up or went away) and every
+# Run by udev (90-wimmo-vehci.rules) for USB devices below the vehci or vxhci
+# platform device: the root hub (= the controller came up or went away) and every
 # device that enumerates behind it. Prints to every logged-in terminal (the
 # serial console's autologin session, SSH), to the Linux panes of the imx95
 # tmux console (what the HDMI screen shows; tmux panes are not utmp logins,
 # so wall misses them) and to the journal.
 set -u
 
+case "${DEVPATH:-}" in
+*/20421000.usb/*) HC=xHCI DRV=xhci-hcd TAG=wimmo-vxhci ;;
+*)                HC=EHCI DRV=ehci-platform TAG=wimmo-vehci ;;
+esac
+
 msg() {
-	m="[Wimmo vEHCI] $*"
+	m="[Wimmo v$HC] $*"
 	echo "$m" | wall -n 2>/dev/null || true
 	tmux -S /run/imx95-console/tmux.sock list-panes -a -F '#{pane_title} #{pane_tty}' 2>/dev/null |
 		awk '$1 != "M7" {print $2}' | sort -u | while read -r tty; do
 			printf '\r\n%s\r\n' "$m" > "$tty" 2>/dev/null || true
 		done
-	logger -t wimmo-vehci "$*" 2>/dev/null || true
+	logger -t "$TAG" "$*" 2>/dev/null || true
 }
 
 sys=/sys${DEVPATH:-}
@@ -26,7 +31,7 @@ where="bus ${BUSNUM:-?} device ${DEVNUM:-?}"
 case "${DEVPATH##*/}" in
 usb*)	# root hub: the controller itself
 	case "${ACTION:-}" in
-	add)    msg "controller up: Linux ehci-platform drives the M7's virtual EHCI (bus ${BUSNUM:-?})" ;;
+	add)    msg "controller up: Linux $DRV drives the M7's virtual $HC (bus ${BUSNUM:-?}, $(cat "$sys/speed" 2>/dev/null || echo "?") Mb/s)" ;;
 	remove) msg "controller gone (bus ${BUSNUM:-?})" ;;
 	esac
 	exit 0

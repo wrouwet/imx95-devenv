@@ -77,6 +77,18 @@
 	 * writes (Linux maps its coherent DMA memory non-cacheable too).
 	 * ARMv7-M MPU regions: power-of-two sizes, aligned.
 	 */
+	/*
+	 * Backing store of the virtual USB 3 drive (src/vxhci_a55.c): M7 DDR
+	 * above the image, inside Linux's m7 reservation window but outside
+	 * Linux RAM (which starts at 0x90000000). Cached: only the M7 uses it.
+	 */
+	vxhci_drive: memory@83000000 {
+		compatible = "zephyr,memory-region", "mmio-sram";
+		reg = <0x83000000 DT_SIZE_M(64)>;
+		zephyr,memory-region = "VXHCI_DRIVE";
+		zephyr,memory-attr = <DT_MEM_ARM(ATTR_MPU_RAM)>;
+	};
+
 	linux_ddr0: memory@90000000 {
 		compatible = "zephyr,memory-region", "mmio-sram";
 		reg = <0x90000000 DT_SIZE_M(256)>;

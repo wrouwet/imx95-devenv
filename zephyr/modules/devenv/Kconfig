@@ -68,4 +68,33 @@ source "subsys/logging/Kconfig.template.log_config"
 
 endif
 
+config VXHCI
+	bool "Virtual xHCI host controller (\"Wimmo\")"
+	help
+	  Emulate an xHCI host controller for a standard xHCI driver on another
+	  processor: register page in shared memory, rings and contexts in the
+	  host's memory, a level interrupt. Port 1 is USB 3, port 2 USB 2.
+	  Comes with a virtual USB 3 drive (mass storage). The integration
+	  supplies the transport (struct vxhci_transport). See
+	  include/vxhci/vxhci.h.
+
+if VXHCI
+
+config VXHCI_THREAD_STACK_SIZE
+	int "Emulation thread stack size"
+	default 2048
+
+config VXHCI_ADAPTIVE_POLL
+	bool "Sleep between polls when idle"
+	default y
+	help
+	  Poll the register page continuously while there is activity; after
+	  2 ms without any, sleep one tick between polls so the core can idle.
+
+module = VXHCI
+module-str = vxhci
+source "subsys/logging/Kconfig.template.log_config"
+
+endif
+
 endmenu

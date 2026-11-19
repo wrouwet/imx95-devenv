@@ -32,4 +32,13 @@ config APP_VEHCI_TESTDEV
 	default y
 	depends on APP_VEHCI && !APP_VEHCI_XLAT
 
+config APP_VXHCI
+	bool "Wimmo virtual xHCI with a virtual USB 3 drive, for Linux on the A55"
+	default y
+	select VXHCI
+	help
+	  Emulate an xHCI controller in the second 4 KiB of the m7shm window
+	  for Linux's stock xhci-plat driver, with a RAM-backed SuperSpeed
+	  mass storage device on its USB 3 port (see src/vxhci_a55.c).
+
 source "Kconfig.zephyr"

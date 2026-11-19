@@ -1,21 +1,27 @@
 #!/bin/sh
-# m7-vehci - attach Linux's stock EHCI driver to the "Wimmo" virtual EHCI on the M7.
+# m7-vehci - attach Linux's stock USB host drivers to the "Wimmo" virtual
+# controllers emulated by the M7.
 #
-#   m7-vehci bind      wait for the M7 to report the controller ready, then bind
-#                      ehci-platform to the vehci device (driver_override)
-#   m7-vehci unbind    release it (must happen before the M7 stops)
+#   m7-vehci bind      wait for the M7 to report each controller ready, then bind
+#                      its stock driver (driver_override)
+#   m7-vehci unbind    release them (must happen before the M7 stops)
 #   m7-vehci status
 #
-# The virtual EHCI's registers live in M7 TCM, which only exists while the M7
-# runs, so the dts node (compatible "wimmo,vehci") matches no driver at boot.
-# Nothing here talks EHCI: the kernel's generic ehci-platform does all of it.
+# Controllers (dts nodes; register pages in the m7shm window in M7 TCM):
+#   20420000.usb  "wimmo,vehci"  virtual EHCI  -> ehci-platform
+#   20421000.usb  "wimmo,vxhci"  virtual xHCI  -> xhci-hcd (xhci-plat)
+# The register pages only exist while the M7 runs, so the compatibles match
+# no driver at boot. Nothing here talks EHCI or xHCI: the kernel's generic
+# drivers do all of it. Each page has a vendor block with "Wimm" when the M7
+# firmware emulates that controller.
 set -eu
 
-DEV=20420000.usb
-D=/sys/bus/platform/devices/$DEV
-DRV=/sys/bus/platform/drivers/ehci-platform
-MAGIC_ADDR=0x20420100	# vendor block: "Wimm"
-MAGIC=0x6D6D6957
+# device  driver  vendor-block address  name
+CONTROLLERS="
+20420000.usb ehci-platform 0x20420100 EHCI
+20421000.usb xhci-hcd 0x20421f00 xHCI
+"
+MAGIC=0x6D6D6957	# "Wimm"
 
 log() { echo "m7-vehci: $*"; }
 
@@ -27,33 +33,56 @@ m7_running() {
 	return 1
 }
 
-bound() { [ -e "$D/driver" ]; }
+magic() { devmem2 "$1" w 2>/dev/null | sed -n 's/.*: \(0x[0-9A-Fa-f]*\)$/\1/p'; }
 
-magic() { devmem2 "$MAGIC_ADDR" w 2>/dev/null | sed -n 's/.*: \(0x[0-9A-Fa-f]*\)$/\1/p'; }
+bind_one() {	# dev drv addr name
+	d=/sys/bus/platform/devices/$1
+	[ -e "$d" ] || { log "$4: no $1 device (dtb without the node?)"; return 0; }
+	if [ -e "$d/driver" ]; then
+		log "$4: already bound to $(basename "$(readlink -f "$d/driver")")"
+		return 0
+	fi
+	for i in $(seq 1 50); do
+		[ "$(magic "$3")" = "$MAGIC" ] && break
+		sleep 0.2
+	done
+	[ "$(magic "$3")" = "$MAGIC" ] || { log "$4: not in this M7 firmware (no Wimmo signature)"; return 0; }
+	echo "$2" > "$d/driver_override"
+	echo "$1" > "/sys/bus/platform/drivers/$2/bind"
+	log "$2 bound to the Wimmo virtual $4"
+}
 
-[ -e "$D" ] || { log "no $DEV device (dtb without the vehci node?)"; exit 1; }
+unbind_one() {	# dev drv addr name
+	d=/sys/bus/platform/devices/$1
+	if [ -e "$d/driver" ]; then
+		echo "$1" > "$d/driver/unbind"
+		log "$4: unbound"
+	fi
+}
+
+status_one() {	# dev drv addr name
+	d=/sys/bus/platform/devices/$1
+	[ -e "$d" ] || return 0
+	if [ -e "$d/driver" ]; then
+		log "$4: bound ($(basename "$(readlink -f "$d/driver")"))"
+	else
+		log "$4: not bound"
+	fi
+}
+
+each() {
+	echo "$CONTROLLERS" | while read -r dev drv addr name; do
+		[ -n "$dev" ] && "$1" "$dev" "$drv" "$addr" "$name"
+	done
+}
 
 case "${1:-status}" in
 bind)
-	bound && { log "already bound to $(basename "$(readlink -f "$D/driver")")"; exit 0; }
-	for i in $(seq 1 50); do
-		m7_running && [ "$(magic)" = "$MAGIC" ] && break
-		sleep 0.2
-	done
+	for i in $(seq 1 50); do m7_running && break; sleep 0.2; done
 	m7_running || { log "M7 not running"; exit 1; }
-	[ "$(magic)" = "$MAGIC" ] || { log "M7 firmware has no virtual EHCI (no Wimmo signature)"; exit 1; }
-	echo ehci-platform > "$D/driver_override"
-	echo "$DEV" > "$DRV/bind"
-	log "ehci-platform bound to the Wimmo virtual EHCI"
+	each bind_one
 	;;
-unbind)
-	if bound; then
-		echo "$DEV" > "$D/driver/unbind"
-		log "unbound"
-	fi
-	;;
-status)
-	if bound; then log "bound ($(basename "$(readlink -f "$D/driver")"))"; else log "not bound"; fi
-	;;
-*) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+unbind) each unbind_one ;;
+status) each status_one ;;
+*) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac

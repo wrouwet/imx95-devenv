@@ -18,6 +18,15 @@ work out from the files: current status, decisions and the reasons for them, got
   Zero-copy default, bounce optional. Goal: same core behind a PCIe endpoint (host's stock ehci-pci). On the board by hand: V7 boot image (SM with the DDR
   grant), dtb with vehci node, /usr/sbin/m7-vehci(-event), /etc/udev/rules.d/90-wimmo-vehci.rules (console
   announcements), /usr/bin/m7ctl, firmware m7-netipc-usb2.elf.
+- **"Wimmo" virtual xHCI + virtual USB 3 drive (2026-11-19, verified on hardware):** same rules as
+  the vEHCI (Linux uses ONLY stock xhci-plat/"xhci-hcd", later the host's stock xhci-pci over PCIe).
+  User decision: the xHCI only ever talks to a VIRTUAL drive (no physical USB3/DWC3/Type-C takeover).
+  Registers = second 4 KiB of the m7shm window (Linux 0x20421000), IRQ shares SPI 236 with the vEHCI
+  (src/a55_irq.c), drive store = 64 MiB M7 DDR at 0x83000000. Linux enumerates it at 5000M, usb-storage
+  + sd bind, data verified. 96 MB/s read / 59 MB/s write (M7 memcpy-bound); null drive 382 MB/s with
+  628 M7 cycles per TRB (EHCI: 18,000 per stage). docs/vxhci.md. On the board: dtb node added with
+  fdtput (backup `.dtb.pre-vxhci`), m7-vehci binds both controllers, default firmware = this build.
+  The Yocto build of all hand-made board changes moves to the T480 (disk on the .224 PC too tight).
 - Every cold boot logs `Reset LM 1, reason=fccu, errId=38` on the SM UART once (seen since the first
   hand-made boot image); the M7 then runs normally. Cause not investigated.
 - **USB2 belongs to the M7 (2026-11-19, verified on hardware from a cold eMMC boot):** SM cfg moves

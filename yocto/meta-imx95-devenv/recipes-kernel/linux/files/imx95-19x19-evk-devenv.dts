@@ -79,6 +79,22 @@
 			reg = <0 0x20420000 0 0x1000>;
 			interrupts = <GIC_SPI 236 IRQ_TYPE_LEVEL_HIGH>;
 		};
+
+		/*
+		 * "Wimmo" virtual xHCI, emulated by the M7 in the second 4 KiB of
+		 * the m7shm window, with a virtual USB 3 drive on its SuperSpeed
+		 * port. Linux's stock xhci-plat (driver "xhci-hcd") drives it,
+		 * bound by m7-vehci like the EHCI above. It shares MSGINTR1 (SPI
+		 * 236) with the virtual EHCI: both drivers request it shared, and
+		 * the M7 holds the line while either controller has an interrupt
+		 * pending. 32-bit addressing, so the same DMA window applies.
+		 * On a PCIe endpoint: the host's stock xhci-pci (class 0x0c0330).
+		 */
+		vxhci: usb@20421000 {
+			compatible = "wimmo,vxhci";
+			reg = <0 0x20421000 0 0x1000>;
+			interrupts = <GIC_SPI 236 IRQ_TYPE_LEVEL_HIGH>;
+		};
 	};
 };
 

@@ -9,8 +9,8 @@
  *    controller reaches it at the same addresses (zero-copy)
  *  - devices: the translator (vehci_xlat) relays the physical USB2 port, or
  *    the built-in test device
- *  - interrupt: MSGINTR1 channel 0, wired to the A55 GIC as SPI 236 (level).
- *    Writing MSIIR raises it, reading MSIR clears it; Linux never touches it.
+ *  - interrupt: MSGINTR1 -> A55 GIC SPI 236 (level), shared with the
+ *    virtual xHCI (a55_irq.c)
  *
  * On a PCIe endpoint the same core gets a BAR, an outbound window and MSIs.
  *
@@ -29,14 +29,11 @@
 #include <vehci/vehci.h>
 #include <vehci/vehci_xlat.h>
 
+#include "a55_irq.h"
 #include "m7shm.h"
 
 #define HOST_MEM_START	0x90000000U
 #define HOST_MEM_END	0xe0000000U
-
-#define VEHCI_MSGINTR_BASE	0x44690000U
-#define MSGINTR_MSIIR	0x0	/* channel 0 */
-#define MSGINTR_MSIR	0x4
 
 BUILD_ASSERT(VEHCI_REGS_SIZE <= M7SHM_SIZE);
 
@@ -71,11 +68,7 @@ static uint32_t dma_addr(void *ctx, uint32_t host_addr)
 
 static void irq_set(void *ctx, bool asserted)
 {
-	if (asserted) {
-		sys_write32(0, VEHCI_MSGINTR_BASE + MSGINTR_MSIIR);
-	} else {
-		(void)sys_read32(VEHCI_MSGINTR_BASE + MSGINTR_MSIR);
-	}
+	a55_irq_set(A55_IRQ_VEHCI, asserted);
 }
 
 static int vehci_a55_init(void)
@@ -88,7 +81,6 @@ static int vehci_a55_init(void)
 		.irq_set = irq_set,
 	};
 
-	(void)sys_read32(VEHCI_MSGINTR_BASE + MSGINTR_MSIR);	/* start deasserted */
 	vehci_start(&t);
 #if defined(CONFIG_APP_VEHCI_XLAT)
 	vehci_xlat_start(DEVICE_DT_GET(DT_NODELABEL(usb2)));
