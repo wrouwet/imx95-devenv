@@ -913,6 +913,28 @@ out:
 	return ret;
 }
 
+bool ci_ehci_raw_poll(const struct device *dev, struct ci_ehci_raw_xfer *x)
+{
+	struct ehci_priv *p = uhc_get_private(dev);
+	struct ehci_ep *ep;
+	bool done;
+
+	/* Cheap check first: the qTD token is in uncached DTCM */
+	ep = x->priv;
+	if (ep && ep->raw == x && (p->pool->qtd[ep->qtds[0]].token & QTD_STS_ACTIVE) &&
+	    !(p->pool->qtd[ep->qtds[0]].token & QTD_STS_HALTED)) {
+		return false;
+	}
+	uhc_lock_internal(dev, K_FOREVER);
+	ep = x->priv;
+	if (ep && ep->raw == x) {
+		raw_check(p, ep);
+	}
+	done = x->priv == NULL;
+	uhc_unlock_internal(dev);
+	return done;
+}
+
 int ci_ehci_raw_cancel(const struct device *dev, struct ci_ehci_raw_xfer *x)
 {
 	struct ehci_priv *p = uhc_get_private(dev);

@@ -27,6 +27,11 @@ struct vehci_xlat_stats {
 	uint32_t errors;
 	uint32_t cancelled;
 	uint32_t resets;
+	/* latency breakdown, M7 cycles summed over timed (completed) stages */
+	uint32_t timed;
+	uint64_t hw_cycles;	/* physical submit -> physical completion callback */
+	uint64_t notice_cycles;	/* completion callback -> result handed to the host's qTD */
+	uint64_t gap_cycles;	/* result handed back -> next stage on that endpoint submitted */
 };
 
 void vehci_xlat_get_stats(struct vehci_xlat_stats *s);

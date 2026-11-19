@@ -36,6 +36,7 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/sys/util.h>
+#include <zephyr/timing/timing.h>
 
 #include <devenv/ci_ehci_raw.h>
 #include <vehci/vehci_xlat.h>
@@ -59,6 +60,8 @@ struct inflight {
 	int64_t last_seen;
 	int64_t submitted;
 	bool warned;
+	timing_t t_sub;
+	timing_t t_done;
 	int bounce;			/* slot or -1 */
 	struct vehci_xfer x;		/* the host's stage, as first seen */
 	struct ci_ehci_raw_xfer raw;
@@ -78,6 +81,11 @@ static struct {
 	uint8_t speed;
 	bool bounce;
 	atomic_t reset_busy;
+	/* per endpoint key: when the last result went back (for the submit gap) */
+	struct {
+		uint16_t key;
+		timing_t t;
+	} last_back[MAX_INFLIGHT];
 	struct k_work reset_work;
 	struct inflight in[MAX_INFLIGHT];
 	uint32_t bounce_used;
@@ -229,6 +237,7 @@ static void raw_done(struct ci_ehci_raw_xfer *raw)
 {
 	struct inflight *f = raw->user;
 
+	f->t_done = timing_counter_get();
 	f->state = DONE;	/* the vEHCI thread picks it up on its next retry */
 }
 
@@ -341,6 +350,10 @@ static int xlat_transfer(void *ctx, struct vehci_xfer *x)
 	if (f) {
 		f->last_seen = now;
 		if (f->state == PENDING) {
+			/* look at the physical qTD directly rather than wait for its interrupt */
+			ci_ehci_raw_poll(xl.uhc, &f->raw);
+		}
+		if (f->state == PENDING) {
 			if (!f->warned && now - f->submitted > 5000) {
 				f->warned = true;
 				LOG_WRN("xlat: stage pending %lld ms: addr %u ep %u %s len %u dt %u %s",
@@ -352,6 +365,23 @@ static int xlat_transfer(void *ctx, struct vehci_xfer *x)
 		}
 		/* DONE: hand the result to the host */
 		int status = f->raw.status;
+		timing_t now_t = timing_counter_get();
+
+		xl.st.timed++;
+		xl.st.hw_cycles += timing_cycles_get(&f->t_sub, &f->t_done);
+		xl.st.notice_cycles += timing_cycles_get(&f->t_done, &now_t);
+		for (int i = 0; i < MAX_INFLIGHT; i++) {
+			if (xl.last_back[i].key == key || i == MAX_INFLIGHT - 1) {
+				xl.last_back[i].key = key;
+				xl.last_back[i].t = now_t;
+				break;
+			}
+			if (xl.last_back[i].key == 0) {
+				xl.last_back[i].key = key;
+				xl.last_back[i].t = now_t;
+				break;
+			}
+		}
 
 		x->actual = f->raw.actual;
 		if (!status && f->bounce >= 0 && x->pid == VEHCI_PID_IN && x->actual) {
@@ -413,6 +443,14 @@ static int xlat_transfer(void *ctx, struct vehci_xfer *x)
 		f->raw.tt_port = virt ? 1 : x->tt_port;
 	}
 
+	f->t_sub = timing_counter_get();
+	for (int i = 0; i < MAX_INFLIGHT; i++) {
+		if (xl.last_back[i].key == key) {
+			xl.st.gap_cycles += timing_cycles_get(&xl.last_back[i].t, &f->t_sub);
+			xl.last_back[i].key = 0xffff;	/* counted once */
+			break;
+		}
+	}
 	f->state = PENDING;
 	ret = ci_ehci_raw_submit(xl.uhc, &f->raw);
 	if (ret) {

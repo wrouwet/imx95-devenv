@@ -56,6 +56,13 @@ struct ci_ehci_raw_xfer {
 /* Queue one stage; at most one per (address, endpoint, direction) at a time (-EBUSY) */
 int ci_ehci_raw_submit(const struct device *dev, struct ci_ehci_raw_xfer *x);
 
+/*
+ * Check a stage now instead of waiting for the completion interrupt (which
+ * comes at a microframe boundary at best, ITC >= 1): returns true if it has
+ * completed (its done callback ran). For callers that poll anyway.
+ */
+bool ci_ehci_raw_poll(const struct device *dev, struct ci_ehci_raw_xfer *x);
+
 /* Take a stage back; its done callback is not called */
 int ci_ehci_raw_cancel(const struct device *dev, struct ci_ehci_raw_xfer *x);
 
