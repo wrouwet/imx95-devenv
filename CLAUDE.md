@@ -12,9 +12,10 @@ work out from the files: current status, decisions and the reasons for them, got
   hard requirement: no glue module), bound by `m7-vehci` via driver_override after the M7 is up
   (m7ctl unbinds before stop). IRQ = MSGINTR1 -> GIC SPI 236; DMA kept below 0xC0000000 by
   dma-ranges (0xE0000000 broke CMA/Weston, see docs/vehci.md); SM grants M7 DDR 0x90000000-0xDFFFFFFF.
-  Test device 1209:0001 "Wimmo" enumerates, hot-plug and m7ctl restart OK. Goal: same core behind a
-  PCIe endpoint with the host's stock ehci-pci (BAR/outbound window/MSI); next: translator to the
-  physical USB2, virtual HS hub for FS/LS. On the board by hand: V7 boot image (SM with the DDR
+  Root port carries the emulated Wimmo hub (1209:0002); the TRANSLATOR (vehci_xlat.c, default on)
+  relays the physical USB2 port behind it: Linux enumerates the real keyboard hub/keyboard/mouse,
+  usbhid binds, typed keys reach Linux (verified 2026-11-19); M7 snoops addresses/VID:PID/keys.
+  Zero-copy default, bounce optional. Goal: same core behind a PCIe endpoint (host's stock ehci-pci). On the board by hand: V7 boot image (SM with the DDR
   grant), dtb with vehci node, /usr/sbin/m7-vehci(-event), /etc/udev/rules.d/90-wimmo-vehci.rules (console
   announcements), /usr/bin/m7ctl, firmware m7-netipc-usb2.elf.
 - Every cold boot logs `Reset LM 1, reason=fccu, errId=38` on the SM UART once (seen since the first

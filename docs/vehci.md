@@ -96,12 +96,55 @@ Capability registers: EHCI 1.00, one port without port power control, 32-bit, fi
 frame list, no extended capabilities. Vendor block at `0x100`: "Wimmo" signature, version, ready
 flag, and the name "Wimmo Virtual EHCI".
 
+## Virtual hub and translator (verified 2026-11-19)
+
+The root port carries the **Wimmo hub** (`1209:0002`, USB 2.0 high-speed, single TT, one port),
+emulated by the M7 (`vehci_hub.c`): descriptors, hub class requests, the status change endpoint on the
+periodic schedule, remote wakeup from autosuspend. A plain PCI EHCI has no integrated TT, so with
+this hub `ehci-pci` reaches full/low-speed devices with split transactions; the emulation simply
+executes them.
+
+The **translator** (`vehci_xlat.c`, `CONFIG_APP_VEHCI_XLAT`, default on) puts the physical USB2 port
+behind the hub's port. Linux's EHCI driver enumerates and drives the real devices; the M7 sits in the
+middle and touches every descriptor:
+- each qTD stage Linux queues becomes one physical qTD (`uhc_ci_ehci` raw interface,
+  `devenv/ci_ehci_raw.h`), keyed by the Linux qTD's address; the stage NAKs until the physical one
+  completes, then status and byte count go back into Linux's qTD
+- USB addresses pass through (Linux's SET_ADDRESS reaches the device); the data toggle is Linux's
+  (the physical qTD carries it, DTC=1)
+- TT routing: Linux addresses FS/LS devices through the virtual hub's TT; physically they use the
+  controller's root TT (hub 0, port 1). TTs of real high-speed hubs pass through.
+- data: zero-copy by default (the physical controller DMAs into Linux's buffers; `vehci_dma_addr`,
+  identity today, the outbound window on PCIe) or bounce buffers in M7 DDR (`vehci bounce on`,
+  `CONFIG_VEHCI_XLAT_BOUNCE`)
+- a stage Linux stops asking for (URB unlinked) is cancelled after 500 ms
+- port: physical attach/detach = hub port connect change; a reset of the hub port resets the
+  physical port (work queue)
+- snoop for the console: SET_ADDRESS, VID:PID, SET_CONFIGURATION, and key presses of boot keyboards
+  found in the configuration descriptors (`CONFIG_VEHCI_XLAT_KEYS`)
+
+Zephyr's own USB host stack is off on USB2 in this mode (`src/usb.c` only with
+`CONFIG_USB_HOST_STACK`).
+
+Seen on the board with an Apple keyboard (built-in FS hub) and a Logitech mouse:
+```
+$ lsusb -t
+/:  Bus 001.Port 001: Dev 001, Class=root_hub, Driver=ehci-platform/1p, 480M
+    |__ Port 001: Dev 002, If 0, Class=Hub, Driver=hub/1p, 480M              <- Wimmo hub (M7)
+        |__ Port 001: Dev 003, If 0, Class=Hub, Driver=hub/3p, 12M           <- keyboard's hub
+            |__ Port 001: Dev 004, If 0, Class=Human Interface Device, Driver=usbhid, 1.5M  <- mouse
+            |__ Port 003: Dev 005, If 0, Class=Human Interface Device, Driver=usbhid, 12M   <- keyboard
+m7: xlat: host gives the device address 5 (SET_ADDRESS passed through)
+m7: xlat: address 5 is 05ac:020b (device descriptor, passed through)
+m7: xlat: address 5 is a boot keyboard (EP 0x81)
+m7: xlat: key 'o' (keyboard at address 5, passing to the host)
+```
+Typed keys arrive in Linux (Weston, the tmux Linux pane).
+
 ## Not done yet
 
-- The translator to the physical USB2 controller (the next step).
-- Full/low-speed devices. A PCI EHCI has no integrated TT and `ehci-pci` would hand them to
-  companion controllers. The plan is a virtual high-speed hub with a TT on the root port, with the
-  physical devices behind it; then split transactions have to be emulated.
+- Throughput tuning (the translator handles one stage per endpoint at a time; bulk devices such
+  as mass storage are untested), isochronous, measured latency.
 - Isochronous (iTD/siTD), suspend/resume details, the FLR/frame-list-size options.
 - The root hub's product string is Linux's generic "EHCI Host Controller". The name "Wimmo" is in
   the vendor block (and on PCIe it would be in the vendor/device IDs).
