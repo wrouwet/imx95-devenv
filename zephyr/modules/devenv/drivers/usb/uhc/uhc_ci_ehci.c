@@ -18,6 +18,12 @@
  * Interrupt endpoints are polled once per frame (1 ms), whatever their
  * bInterval; that is within what the USB spec allows a host to do.
  *
+ * Besides the UHC API there is a raw interface (devenv/ci_ehci_raw.h) for the
+ * virtual EHCI translator: one stage as an EHCI qTD describes it (address,
+ * endpoint, PID, speed, TT routing, toggle, buffer page list) becomes one
+ * physical qTD on a queue head per (address, endpoint, direction). The toggle
+ * always comes from the qTD (DTC=1), so the caller's toggle state rules.
+ *
  * Copyright (c) 2026, imx95-devenv contributors
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -36,6 +42,7 @@
 #include <zephyr/sys/sys_io.h>
 
 #include "uhc_common.h"
+#include <devenv/ci_ehci_raw.h>
 
 LOG_MODULE_REGISTER(uhc_ci_ehci, CONFIG_UHC_DRIVER_LOG_LEVEL);
 
@@ -186,6 +193,10 @@ struct ehci_ep {
 	uint8_t data_first;	/* index range in qtds[] holding the data stage */
 	uint8_t data_n;
 	uint32_t data_len;
+	/* raw interface */
+	bool is_raw;
+	uint16_t raw_key;
+	struct ci_ehci_raw_xfer *raw;
 };
 
 struct ehci_config {
@@ -449,7 +460,7 @@ static struct ehci_ep *ep_find(struct ehci_priv *p, struct uhc_transfer *xfer)
 
 static bool ep_idle(struct ehci_ep *ep)
 {
-	return ep->active == NULL && sys_dlist_is_empty(&ep->queue);
+	return ep->active == NULL && ep->raw == NULL && sys_dlist_is_empty(&ep->queue);
 }
 
 static void ep_release(struct ehci_priv *p, struct ehci_ep *ep)
@@ -494,6 +505,8 @@ static struct ehci_ep *ep_get(struct ehci_priv *p, struct uhc_transfer *xfer)
 	ep->periodic = xfer->type == USB_EP_TYPE_INTERRUPT;
 	ep->reset_toggle = false;
 	ep->active = NULL;
+	ep->is_raw = false;
+	ep->raw = NULL;
 	ep->nqtd = 0;
 	sys_dlist_init(&ep->queue);
 	ep->qh->link = LINK_T;
@@ -735,6 +748,204 @@ static void ep_flush(struct ehci_priv *p, struct ehci_ep *ep, int err)
 	}
 }
 
+static int port_reset(struct ehci_priv *p, enum usb_device_speed *speed);
+
+/* --- raw interface (virtual EHCI translator) --- */
+
+static void raw_finish(struct ehci_priv *p, struct ehci_ep *ep, int status, size_t actual, bool dt)
+{
+	struct ci_ehci_raw_xfer *x = ep->raw;
+
+	ep_free_qtds(p, ep);
+	ep->raw = NULL;
+	x->priv = NULL;
+	x->status = status;
+	x->actual = actual;
+	x->dt_out = dt;
+	if (x->done) {
+		x->done(x);
+	}
+}
+
+static void raw_check(struct ehci_priv *p, struct ehci_ep *ep)
+{
+	struct ci_ehci_raw_xfer *x = ep->raw;
+	uint32_t tok = p->pool->qtd[ep->qtds[0]].token;
+	int status = 0;
+
+	if (tok & QTD_STS_HALTED) {
+		status = qtd_error(tok);
+		ep->qh->next = LINK_T;	/* clear the halted overlay */
+		ep->qh->token = 0;
+	} else if (tok & QTD_STS_ACTIVE) {
+		return;
+	}
+	raw_finish(p, ep, status, x->len - QTD_GET_BYTES(tok), tok & QTD_DT);
+}
+
+static uint16_t raw_key(const struct ci_ehci_raw_xfer *x)
+{
+	/* control endpoints share one queue head for both directions */
+	uint8_t dir = x->control ? 2 : (x->pid == CI_EHCI_RAW_PID_IN);
+
+	return (x->addr << 8) | (x->ep << 4) | (dir << 1) | x->periodic;
+}
+
+static struct ehci_ep *raw_ep_get(struct ehci_priv *p, const struct ci_ehci_raw_xfer *x)
+{
+	uint16_t key = raw_key(x);
+	struct ehci_ep *spare = NULL;
+
+	for (int i = 0; i < EHCI_NUM_EP; i++) {
+		if (p->eps[i].used && p->eps[i].is_raw && p->eps[i].raw_key == key) {
+			return &p->eps[i];
+		}
+	}
+	for (int i = 0; i < EHCI_NUM_EP && !spare; i++) {
+		if (!p->eps[i].used) {
+			spare = &p->eps[i];
+		}
+	}
+	for (int i = 0; i < EHCI_NUM_EP && !spare; i++) {
+		if (ep_idle(&p->eps[i])) {
+			ep_release(p, &p->eps[i]);
+			spare = &p->eps[i];
+		}
+	}
+	if (!spare) {
+		return NULL;
+	}
+	memset((void *)spare->qh, 0, sizeof(*spare->qh));
+	spare->used = true;
+	spare->linked = false;
+	spare->udev = NULL;
+	spare->ep = x->ep;
+	spare->type = x->control ? USB_EP_TYPE_CONTROL :
+		      x->periodic ? USB_EP_TYPE_INTERRUPT : USB_EP_TYPE_BULK;
+	spare->periodic = x->periodic;
+	spare->active = NULL;
+	spare->nqtd = 0;
+	spare->is_raw = true;
+	spare->raw_key = key;
+	spare->raw = NULL;
+	sys_dlist_init(&spare->queue);
+	spare->qh->link = LINK_T;
+	spare->qh->next = LINK_T;
+	spare->qh->alt = LINK_T;
+	return spare;
+}
+
+int ci_ehci_raw_submit(const struct device *dev, struct ci_ehci_raw_xfer *x)
+{
+	struct ehci_priv *p = uhc_get_private(dev);
+	struct ehci_ep *ep;
+	struct ehci_qtd *qtd;
+	uint32_t info1, info2 = QH_MULT(1);
+	int i, ret = 0;
+
+	if (x->len > 5 * 0x1000 - (x->bufp[0] & 0xfff)) {
+		return -EINVAL;
+	}
+	uhc_lock_internal(dev, K_FOREVER);
+	if (!p->connected) {
+		ret = -ENODEV;
+		goto out;
+	}
+	ep = raw_ep_get(p, x);
+	if (!ep) {
+		ret = -ENOMEM;
+		goto out;
+	}
+	if (ep->raw) {
+		ret = -EBUSY;
+		goto out;
+	}
+	i = qtd_alloc(p);
+	if (i < 0) {
+		ret = -ENOMEM;
+		goto out;
+	}
+	ep->qtds[0] = i;
+	ep->nqtd = 1;
+
+	qtd = &p->pool->qtd[i];
+	qtd->next = LINK_T;
+	qtd->alt = LINK_T;
+	for (int k = 0; k < 5; k++) {
+		qtd->buf[k] = x->bufp[k];
+	}
+	qtd->token = QTD_BYTES(x->len) | QTD_IOC | QTD_CERR(3) | ((uint32_t)x->pid << 8) |
+		     (x->dt ? QTD_DT : 0) | QTD_STS_ACTIVE;
+
+	/* Queue head: toggle from the qTD; TT routing for full/low speed */
+	info1 = QH_ADDR(x->addr) | QH_EP(x->ep) | QH_MPS(x->mps) | QH_DTC |
+		((uint32_t)x->speed << 12);
+	if (x->speed == CI_EHCI_RAW_SPEED_HIGH) {
+		if (!x->periodic) {
+			info1 |= QH_RL(4);
+		}
+		if (x->periodic) {
+			info2 |= QH_SMASK(0x01);
+		}
+	} else {
+		if (x->control) {
+			info1 |= QH_C;
+		}
+		info2 |= QH_HUB(x->tt_hub) | QH_PORT(x->tt_port);
+		if (x->periodic) {
+			info2 |= QH_SMASK(0x01) | QH_CMASK(0x1c);
+		}
+	}
+	ep->qh->info1 = info1;
+	ep->qh->info2 = info2;
+	ep->qh->token = 0;
+	ep->qh->alt = LINK_T;
+	barrier_dmem_fence_full();
+	ep->qh->next = bus_addr(p, qtd);
+	barrier_dsync_fence_full();
+
+	x->priv = ep;
+	ep->raw = x;
+	ep_link(p, ep);
+	k_sem_give(&p->work);
+out:
+	uhc_unlock_internal(dev);
+	return ret;
+}
+
+int ci_ehci_raw_cancel(const struct device *dev, struct ci_ehci_raw_xfer *x)
+{
+	struct ehci_priv *p = uhc_get_private(dev);
+	struct ehci_ep *ep;
+
+	uhc_lock_internal(dev, K_FOREVER);
+	ep = x->priv;
+	if (ep && ep->raw == x) {
+		ep_unlink(p, ep);
+		ep_free_qtds(p, ep);
+		ep->qh->next = LINK_T;
+		ep->qh->token = 0;
+		ep->raw = NULL;
+		x->priv = NULL;
+	}
+	uhc_unlock_internal(dev);
+	return 0;
+}
+
+int ci_ehci_raw_port_reset(const struct device *dev, uint8_t *speed)
+{
+	struct ehci_priv *p = uhc_get_private(dev);
+	enum usb_device_speed s;
+	int ret = port_reset(p, &s);
+
+	op_write(p, OP_PORTSC1, op_read(p, OP_PORTSC1) & ~PORTSC_PHCD);	/* ack changes */
+	if (ret == 0) {
+		*speed = s == USB_SPEED_SPEED_HS ? CI_EHCI_RAW_SPEED_HIGH :
+			 s == USB_SPEED_SPEED_LS ? CI_EHCI_RAW_SPEED_LOW : CI_EHCI_RAW_SPEED_FULL;
+	}
+	return ret;
+}
+
 static void schedule(struct ehci_priv *p)
 {
 	for (int i = 0; i < EHCI_NUM_EP; i++) {
@@ -742,6 +953,10 @@ static void schedule(struct ehci_priv *p)
 		sys_dnode_t *node;
 
 		if (!ep->used) {
+			continue;
+		}
+		if (ep->raw) {
+			raw_check(p, ep);
 			continue;
 		}
 		if (ep->active && !xfer_check(p, ep)) {
@@ -805,10 +1020,16 @@ static void port_disconnected(struct ehci_priv *p)
 	uhc_lock_internal(p->dev, K_FOREVER);
 	p->connected = false;
 	for (int i = 0; i < EHCI_NUM_EP; i++) {
-		if (p->eps[i].used) {
-			ep_flush(p, &p->eps[i], -ENODEV);
-			ep_release(p, &p->eps[i]);
+		struct ehci_ep *ep = &p->eps[i];
+
+		if (!ep->used) {
+			continue;
 		}
+		if (ep->raw) {
+			raw_finish(p, ep, -ENODEV, 0, false);
+		}
+		ep_flush(p, ep, -ENODEV);
+		ep_release(p, ep);
 	}
 	uhc_unlock_internal(p->dev);
 	LOG_INF("USB2: device disconnected");
