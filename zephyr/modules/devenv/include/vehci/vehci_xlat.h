@@ -19,6 +19,10 @@ int vehci_xlat_start(const struct device *uhc);
 void vehci_xlat_set_bounce(bool bounce);
 bool vehci_xlat_bounce(void);
 
+/* Pipelining of bulk stages (default on); off: one stage per endpoint at a time */
+void vehci_xlat_set_pipeline(bool on);
+bool vehci_xlat_pipeline(void);
+
 struct vehci_xlat_stats {
 	uint32_t stages;
 	uint32_t zero_copy;

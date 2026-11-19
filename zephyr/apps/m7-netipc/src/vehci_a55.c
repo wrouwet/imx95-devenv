@@ -273,6 +273,15 @@ static int cmd_poll(const struct shell *sh, size_t argc, char **argv)
 }
 
 #if defined(CONFIG_APP_VEHCI_XLAT)
+static int cmd_pipeline(const struct shell *sh, size_t argc, char **argv)
+{
+	if (argc > 1) {
+		vehci_xlat_set_pipeline(strcmp(argv[1], "off") != 0);
+	}
+	shell_print(sh, "pipelining: %s", vehci_xlat_pipeline() ? "on" : "off");
+	return 0;
+}
+
 static int cmd_bounce(const struct shell *sh, size_t argc, char **argv)
 {
 	if (argc > 1) {
@@ -302,6 +311,8 @@ SHELL_STATIC_SUBCMD_SET_CREATE(vehci_cmds,
 	SHELL_CMD_ARG(poll, NULL, "[busy|adaptive] emulation polling", cmd_poll, 1, 1),
 #if defined(CONFIG_APP_VEHCI_XLAT)
 	SHELL_CMD_ARG(bounce, NULL, "[on|off] translator data path (default zero-copy)", cmd_bounce,
+		      1, 1),
+	SHELL_CMD_ARG(pipeline, NULL, "[on|off] pipelined bulk stages (default on)", cmd_pipeline,
 		      1, 1),
 #endif
 	SHELL_SUBCMD_SET_END);

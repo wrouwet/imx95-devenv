@@ -232,6 +232,28 @@ Zero-copy now costs about 18,000 M7 cycles (~23 us) per 4 KiB stage, mostly the 
 accesses when a stage is retired (read the next qTD, write the overlay and the token). The ideal
 assumes Linux's 4 KiB qTDs; larger ones would scale it almost linearly.
 
+**Pipelining A/B** (`vehci pipeline on|off`, same build): on 4.86–4.87 c/B, off 4.91–4.97 c/B,
+16.2–16.3 MB/s either way on this stick. After round 2 pipelining costs the M7 nothing extra; it
+stays on because it hides the per-stage round trip (~220 us), which would otherwise cap any faster
+device near 18 MB/s.
+
+**Stage size from the Linux command line** (no driver change). Linux's EHCI driver builds one qTD per
+physically contiguous buffer piece, up to 20 KiB. With `O_DIRECT` the application's buffer pages go
+to the controller directly, so transparent huge pages (2 MiB contiguous) make stages bigger:
+
+| Linux setting | Throughput | Avg bytes/stage | Cost | **M7-bound ideal** |
+|---|---|---|---|---|
+| THP never, 120 KiB SCSI commands | 16.3 MB/s | 3,831 | 4.89 c/B | ~1.31 Gbit/s |
+| THP never, 1 MiB commands | 17.0 MB/s | 4,063 | 5.21 c/B | ~1.23 Gbit/s |
+| THP always, 120 KiB commands | 16.6 MB/s | 6,008 | 2.85 c/B | **~2.25 Gbit/s** |
+| THP always, 1 MiB commands | 17.3 MB/s | 6,456 | 3.24 c/B | ~1.98 Gbit/s |
+
+THP: `echo always > /sys/kernel/mm/transparent_hugepage/enabled` (already the image default; it
+helps when the buffer is large and aligned enough, e.g. `dd bs=4M`, which explains occasional
+"fast" runs with `bs=1M`). SCSI command size: `/sys/bus/scsi/devices/0:0:0:0/max_sectors` and
+`/sys/block/sda/queue/max_sectors_kb`. The stages stay well below 20 KiB, probably because Linux's
+buffers above 0xC0000000 are bounced through swiotlb (the vEHCI's `dma-ranges`); not verified yet.
+
 **Why the queue stays in host memory.** EHCI has the host driver allocate queue heads, qTDs and the
 frame list in its own memory; an unmodified driver uses its normal DMA allocator (Linux DDR here,
 the host's RAM on PCIe). The M7 therefore caches the schedule (shadows, cursor) and only touches

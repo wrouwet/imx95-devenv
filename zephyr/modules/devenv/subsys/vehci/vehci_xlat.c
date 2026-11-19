@@ -85,6 +85,7 @@ static struct {
 	bool attached;
 	uint8_t speed;
 	bool bounce;
+	bool no_pipeline;	/* A/B switch: one stage per endpoint at a time */
 	atomic_t reset_busy;
 	/* per endpoint key: when the last result went back (for the submit gap) */
 	struct {
@@ -510,7 +511,7 @@ static int xlat_prefetch(void *ctx, struct vehci_xfer *x)
 	struct inflight *f;
 	int count;
 
-	if (!xl.attached) {
+	if (!xl.attached || xl.no_pipeline) {
 		return -ENODEV;
 	}
 	f = find_stage(key, x->id, &count);
@@ -629,6 +630,16 @@ void vehci_xlat_set_bounce(bool bounce)
 bool vehci_xlat_bounce(void)
 {
 	return xl.bounce;
+}
+
+void vehci_xlat_set_pipeline(bool on)
+{
+	xl.no_pipeline = !on;
+}
+
+bool vehci_xlat_pipeline(void)
+{
+	return !xl.no_pipeline;
 }
 
 void vehci_xlat_get_stats(struct vehci_xlat_stats *s)
