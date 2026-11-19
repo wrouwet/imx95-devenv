@@ -4,7 +4,8 @@
 #   make install    -> /lib/modules/$(uname -r)/updates/m7shm.ko, /usr/bin/m7shm-tool
 obj-m := m7shm.o
 
-KDIR ?= /lib/modules/$(shell uname -r)/build
+# Yocto's module.bbclass passes KERNEL_SRC
+KDIR ?= $(if $(KERNEL_SRC),$(KERNEL_SRC),/lib/modules/$(shell uname -r)/build)
 
 all: modules tool
 
@@ -21,8 +22,11 @@ install: all
 	depmod -a
 	install -D -m 0755 tools/m7shm-tool $(DESTDIR)/usr/bin/m7shm-tool
 
+modules_install:
+	$(MAKE) -C $(KDIR) M=$(CURDIR) modules_install
+
 clean:
 	$(MAKE) -C $(KDIR) M=$(CURDIR) clean
 	rm -f tools/m7shm-tool
 
-.PHONY: all modules tool install clean
+.PHONY: all modules tool install modules_install clean

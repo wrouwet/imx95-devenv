@@ -64,6 +64,8 @@ IMAGE_INSTALL += " \
     usb-gadget-net \
     devenv-network \
     m7-firmware \
+    m7shm \
+    m7shm-tool \
     imx95-console \
     rootfs-grow \
 "
