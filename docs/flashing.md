@@ -42,7 +42,25 @@ To use an SD card instead, write the `.wic.zst` from the host:
 (check `sdX` with `lsblk`). Then boot with the switches set to SD. The wic image already
 contains the `flash_a55` boot image at the right offset.
 
+## Flash eMMC from U-Boot over USB mass storage (preferred, no uuu)
+
+U-Boot's `ums` works over the same USB-C cable (as a high-speed device), and Linux isn't running on
+the board, so nothing can write to the eMMC while it is being flashed. The boot switches stay on eMMC.
+
+1. On the A55 console, stop autoboot (reset with `reset` in the SM monitor if needed) and run
+   `ums 0 mmc 0`. The eMMC shows up on the host as a 59.3 GB "UMS disk 0" (`lsblk`).
+2. Unmount anything the desktop mounted (`udisksctl unmount -b /dev/sdX1`) and write the image.
+   The desktop's ACL lets the logged-in user write it without sudo:
+   `zstd -dc imx95-devenv-image-*.wic.zst | dd of=/dev/sdX bs=4M iflag=fullblock oflag=direct conv=fsync`
+   (2026-11-20: 6.7 GB in 7 minutes). Check it: `head -c <image size> /dev/sdX | sha256sum`.
+3. Press Ctrl-C on the A55 console, then run `boot`. On first boot, `rootfs-grow` grows the root to fill
+   the eMMC.
+
 ## Flash eMMC from Linux on the board (no uuu)
+
+> **Unreliable, use `ums` above.** On 2026-11-20 this script, even with the SysRq fix below, still
+> left a mix of the old and new root filesystems on the eMMC (old superblock with the grown 59 GB
+> size, corrupted group descriptors, kernel panic at boot). A rewrite through `ums` fixed it.
 
 uuu's second stage (U-Boot fastboot) never showed up on the host with the USB-C cable used during
 bring-up: U-Boot's dwc3 gadget runs at SuperSpeed, and that link didn't train. The ROM and SPL stages

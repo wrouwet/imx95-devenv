@@ -11,6 +11,8 @@
 # image's default doesn't, which left the old ext4 mounted read-write during the
 # write, and its journal corrupted the new image twice (2026-11-16). Afterwards
 # check the result before trusting it (docs/flashing.md).
+# UNRELIABLE (2026-11-20: corrupted the new root fs again despite the SysRq fix).
+# Prefer U-Boot "ums 0 mmc 0" and dd from the host, see docs/flashing.md.
 set -euo pipefail
 WORK="${WORK:-$HOME/imx95-work}"
 MACHINE="${MACHINE:-imx95-19x19-lpddr5-evk}"

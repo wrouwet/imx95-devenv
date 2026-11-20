@@ -26,7 +26,15 @@ work out from the files: current status, decisions and the reasons for them, got
   + sd bind, data verified. 96 MB/s read / 59 MB/s write (M7 memcpy-bound); null drive 382 MB/s with
   628 M7 cycles per TRB (EHCI: 18,000 per stage). docs/vxhci.md. On the board: dtb node added with
   fdtput (backup `.dtb.pre-vxhci`), m7-vehci binds both controllers, default firmware = this build.
-  The Yocto build of all hand-made board changes moves to the T480 (disk on the .224 PC too tight).
+  **The board now runs a Yocto image (2026-11-20, verified):** built on the T480 from 9cac364 with all
+  the formerly hand-made changes (SM cfg, U-Boot bootcmd, dts, m7-tools, m7shm, M7 firmware). Boot image
+  matches the hand-made one (ELE/OEI/SPL/TF-A/OP-TEE byte-identical, same SM cfg and gcc 15.2.rel1; SM
+  built with monitor mode 2 = NXP default, so "Press key to enter monitor mode"), dtb identical but for
+  phandles. Flashed via U-Boot `ums` (flash-from-linux.sh corrupted the root fs, see docs/flashing.md).
+  T480: Tailscale, `ssh wim@wim-thinkpad-t480` (tailnet allows only user wim), workspace in
+  ~/imx95-devenv + ~/imx95-work there; its local.conf points DEVENV_SSH_PUBKEY at
+  ~/imx95-work/ssh/authorized_keys (T480 key + .224 PC key). Outputs copied to .224
+  ~/imx95-work/yocto-t480-20261120/ (also the previous board boot area and a /root backup).
   UAS (2026-11-19, verified): drive alt 1 = UAS with 32 streams, vxHCI streams (MaxPSASize 5), Linux
   binds `uas` (queue depth 30); null drive 690-800 MB/s (bulk-only 436-489). xHCI has ONE doorbell
   register per slot, so the emulation never relies on seeing every doorbell (slot sweep, device
@@ -256,8 +264,8 @@ The board's eMMC has the first image plus fixes copied by hand; the repo has all
    the image so the fixed VF_MAC handoff and the new firmware become the defaults.
 4. m7shm: Yocto recipe (module + tool, autoload), then the user's descriptor ring on top.
    USB2: HID class on the M7 (keyboard/mouse reports), M7-side SCMI for PD_HSIO_TOP/clock
-   (needed once USB1 also leaves Linux), then USB3/USB1 to the M7 (user's next goal). Build a
-   Yocto image with the SM/U-Boot/dts changes and compare with the hand-made boot image.
+   (needed once USB1 also leaves Linux), then USB3/USB1 to the M7 (user's next goal). (Yocto image
+   with the SM/U-Boot/dts changes: done 2026-11-20.)
 5. Later (user, 2026-11-19: "skip for now"): faster virtual-drive data copies for the vxHCI
    (M7 DMA engine, or cacheable access to Linux DDR with explicit cache maintenance, instead of
    memcpy into uncached memory; today ~150-190 MB/s and the RAM drive's limit). Also UAS.
