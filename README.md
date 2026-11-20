@@ -54,6 +54,7 @@ A development environment for the **NXP i.MX95 19x19 LPDDR5 EVK** (board code
 | [docs/m7-usb2.md](docs/m7-usb2.md) | USB2 owned by the M7: SM/U-Boot/Linux changes, the Zephyr EHCI host driver, console output, boot image built outside Yocto |
 | [docs/m7shm.md](docs/m7shm.md) | Memory window in the M7 DTCM shared with Linux: m7shm.ko, /dev/m7shm, M7 shell, measurements |
 | [docs/ethernet.md](docs/ethernet.md) | The shared Ethernet port: data path, setup, tests, tweaks (VLAN, fixed MAC, other ports) |
+| [docs/yocto-build-handoff.md](docs/yocto-build-handoff.md) | Handoff for the first Yocto build of the hand-made board changes (T480) |
 | [docs/yocto.md](docs/yocto.md) | Layer contents, rebuilding pieces, adding packages, SDK, disk/time |
 | [docs/flashing.md](docs/flashing.md) | Connectors, debug UARTs, uuu/SD flashing, HDMI, first-boot checklist |
 | [docs/silicon-revision.md](docs/silicon-revision.md) | Finding and handling the i.MX95 silicon revision |
